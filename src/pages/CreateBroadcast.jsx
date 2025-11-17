@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Mic, MicOff, Radio, Users, AlertCircle, Loader2, CheckCircle, Shield, Eye, Clock } from "lucide-react";
+import { Mic, MicOff, Radio, Users, AlertCircle, Loader2, CheckCircle, Shield, Eye, Clock, Image, Sparkles, Video, Pause, Play } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -24,6 +23,10 @@ import RecordingControls from "../components/broadcast/RecordingControls";
 import ListenerStatsChart from "../components/broadcast/ListenerStatsChart";
 import MuteAllControl from "../components/broadcast/MuteAllControl";
 import BroadcastCover from "../components/broadcast/BroadcastCover";
+import BroadcastMarkers from "../components/broadcast/BroadcastMarkers";
+import { Checkbox } from "@/components/ui/checkbox";
+import VideoRecordingControls from "../components/broadcast/VideoRecordingControls";
+import AgoraVideoBroadcaster from "../components/video/AgoraVideoBroadcaster";
 
 const categories = ["علوم شرعية", "تفسير القرآن", "الحديث النبوي", "الفقه الإسلامي", "السيرة النبوية", "تربية وتزكية", "نقاش", "أخرى"];
 
@@ -63,6 +66,8 @@ export default function CreateBroadcast() {
   });
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [agoraTrack, setAgoraTrack] = useState(null);
+  const [videoTrack, setVideoTrack] = useState(null);
+  const [isBroadcastPaused, setIsBroadcastPaused] = useState(false);
   const [listenerStats, setListenerStats] = useState([]);
   const [peakListeners, setPeakListeners] = useState(0);
   const statsIntervalRef = useRef(null);
@@ -84,7 +89,6 @@ export default function CreateBroadcast() {
   const MAX_DURATION_HOURS = 3;
   const MAX_DURATION_SECONDS = MAX_DURATION_HOURS * 60 * 60;
 
-  // Fetch cover for preview (this fetches the cover *associated with currentBroadcast*)
   const { data: broadcastCover } = useQuery({
     queryKey: ['broadcastCover', currentBroadcast?.id],
     queryFn: async () => {
@@ -92,31 +96,27 @@ export default function CreateBroadcast() {
       const covers = await base44.entities.BroadcastCover.filter({ broadcast_id: currentBroadcast.id });
       return covers.length > 0 ? covers[0] : null;
     },
-    enabled: !!currentBroadcast?.id && isLive, // Only fetch for live broadcast
+    enabled: !!currentBroadcast?.id && isLive,
   });
 
-  // Fetch scheduled broadcasts
   const { data: scheduledBroadcasts = [] } = useQuery({
     queryKey: ['scheduledBroadcastsCreate'],
-    queryFn: () => base44.entities.Broadcast.filter({ is_scheduled: true, is_live: false, broadcaster_id: user?.id }), // Filter by current user for scheduling
-    enabled: !isLive && !!user?.id, // Only fetch if not live and user is known
+    queryFn: () => base44.entities.Broadcast.filter({ is_scheduled: true, is_live: false, broadcaster_id: user?.id }),
+    enabled: !isLive && !!user?.id,
   });
 
-  // Fetch all covers
   const { data: allCovers = [] } = useQuery({
     queryKey: ['allCovers'],
     queryFn: () => base44.entities.BroadcastCover.list("-created_date"),
-    enabled: !isLive, // Only fetch if not live
+    enabled: !isLive,
   });
 
-  // Fetch series for dropdown
   const { data: series = [] } = useQuery({
     queryKey: ['series'],
     queryFn: () => base44.entities.Series.list(),
     enabled: !isLive,
   });
 
-  // Fetch recordings for re-broadcast dropdown
   const { data: recordings = [] } = useQuery({
     queryKey: ['recordingsForRebroadcast'],
     queryFn: () => base44.entities.Recording.list("-created_date"),
@@ -128,20 +128,18 @@ export default function CreateBroadcast() {
       try {
         const currentUser = await base44.auth.me();
         setUser(currentUser);
-        // Updated admin/broadcaster role check
         setIsAdmin(currentUser.role === 'admin' || currentUser.custom_role === 'admin' || currentUser.custom_role === 'broadcaster' || currentUser.custom_role === 'content_manager');
 
         if (currentUser.role !== 'admin' && currentUser.custom_role !== 'admin' && currentUser.custom_role !== 'broadcaster' && currentUser.custom_role !== 'content_manager') {
-          setError("عذراً، البث المباشر متاح للمشرفين والمذيعين فقط"); // Updated error message
+          setError("عذراً، البث المباشر متاح للمشرفين والمذيعين فقط");
           return;
         }
 
-        // Check if there's an active broadcast ID in URL
         if (activeBroadcastId) {
           loadActiveBroadcast(activeBroadcastId);
-        } else if (scheduledBroadcastId) { // New: Load scheduled broadcast from URL
+        } else if (scheduledBroadcastId) {
           loadScheduledBroadcast(scheduledBroadcastId);
-          setSelectedScheduledBroadcast(scheduledBroadcastId); // Set the select dropdown value
+          setSelectedScheduledBroadcast(scheduledBroadcastId);
         }
       } catch (error) {
         console.error("Error fetching user:", error);
@@ -149,9 +147,8 @@ export default function CreateBroadcast() {
       }
     };
     fetchUser();
-  }, [activeBroadcastId, scheduledBroadcastId, user?.id]); // Added user.id to dependencies for scheduledBroadcasts query
+  }, [activeBroadcastId, scheduledBroadcastId]);
 
-  // Track elapsed time
   useEffect(() => {
     if (isLive && startTimeRef.current) {
       const interval = setInterval(() => {
@@ -165,7 +162,6 @@ export default function CreateBroadcast() {
     }
   }, [isLive, startTimeRef.current]);
 
-  // Auto-stop broadcast after 3 hours
   useEffect(() => {
     if (isLive && startTimeRef.current) {
       const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -175,7 +171,74 @@ export default function CreateBroadcast() {
         stopBroadcast();
       }
     }
-  }, [elapsedTime, isLive]); // Depend on elapsedTime to trigger check every second
+  }, [elapsedTime, isLive]);
+
+  useEffect(() => {
+    if (selectedScheduledBroadcast) {
+      const coversForScheduled = allCovers.filter(c => c.broadcast_id === selectedScheduledBroadcast);
+      const templateCovers = allCovers.filter(c => c.broadcast_id === null || c.broadcast_id === undefined);
+      setAvailableCovers([...templateCovers, ...coversForScheduled]);
+
+      if (coversForScheduled.length > 0) {
+        setSelectedCoverId(coversForScheduled[0].id);
+      } else {
+        setSelectedCoverId("");
+      }
+    } else {
+      setAvailableCovers(allCovers.filter(c => c.broadcast_id === null || c.broadcast_id === undefined));
+      setSelectedCoverId("");
+    }
+  }, [selectedScheduledBroadcast, allCovers]);
+
+  useEffect(() => {
+    if (isLive && currentBroadcast) {
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+      }
+
+      statsIntervalRef.current = setInterval(async () => {
+        try {
+          const listeners = await base44.entities.Listener.filter({
+            broadcast_id: currentBroadcast.id,
+            is_active: true
+          });
+
+          const count = listeners.length;
+          setListenerCount(count);
+
+          let currentPeakForStat = 0;
+          setPeakListeners(prevPeak => {
+            const newPeak = Math.max(prevPeak, count);
+            currentPeakForStat = newPeak;
+            return newPeak;
+          });
+
+          const stat = await base44.entities.ListenerStats.create({
+            broadcast_id: currentBroadcast.id,
+            timestamp: new Date().toISOString(),
+            active_listeners: count,
+            peak_listeners: currentPeakForStat
+          });
+
+          setListenerStats(prev => [...prev.slice(-19), stat]);
+        } catch (error) {
+          console.error("Error tracking listener stats:", error);
+        }
+      }, 10000);
+
+      return () => {
+        if (statsIntervalRef.current) {
+          clearInterval(statsIntervalRef.current);
+          statsIntervalRef.current = null;
+        }
+      };
+    } else {
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = null;
+      }
+    }
+  }, [isLive, currentBroadcast]);
 
   const formatElapsedTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
@@ -215,7 +278,6 @@ export default function CreateBroadcast() {
         startTimeRef.current = new Date(broadcast.started_at).getTime();
         setError(null);
       } else {
-        // If broadcast ID was in URL but not found or not live, clear it.
         navigate(createPageUrl("CreateBroadcast"), { replace: true });
       }
     } catch (error) {
@@ -224,7 +286,6 @@ export default function CreateBroadcast() {
     }
   };
 
-  // New: Load scheduled broadcast data into form
   const loadScheduledBroadcast = async (broadcastId) => {
     try {
       const broadcasts = await base44.entities.Broadcast.filter({ id: broadcastId, is_scheduled: true, is_live: false });
@@ -237,25 +298,23 @@ export default function CreateBroadcast() {
           lecturer_name: broadcast.lecturer_name || "د.إبراهيم الشربيني",
           series_id: broadcast.series_id || "",
           episode_number: broadcast.episode_number || null,
-          has_video: broadcast.has_video || false, // Scheduled broadcasts might not have video, or could carry over
+          has_video: broadcast.has_video || false,
           youtube_url: broadcast.youtube_url || "",
           facebook_url: broadcast.facebook_url || "",
           rebroadcast_from_recording_id: broadcast.rebroadcast_from_recording_id || "",
           rebroadcast_from_url: broadcast.rebroadcast_from_url || ""
         });
 
-        // Check if cover exists for this scheduled broadcast and pre-select it
         const covers = await base44.entities.BroadcastCover.filter({ broadcast_id: broadcastId });
         if (covers.length > 0) {
           setSelectedCoverId(covers[0].id);
         } else {
-          setSelectedCoverId(""); // No cover associated
+          setSelectedCoverId("");
         }
       } else {
-        // If scheduled broadcast ID was in URL but not found or already live/not scheduled
         setError("البث المجدول المحدد غير موجود أو غير متاح للبدء.");
-        setSelectedScheduledBroadcast(""); // Clear selection
-        navigate(createPageUrl("CreateBroadcast"), { replace: true }); // Remove from URL
+        setSelectedScheduledBroadcast("");
+        navigate(createPageUrl("CreateBroadcast"), { replace: true });
       }
     } catch (error) {
       console.error("Error loading scheduled broadcast:", error);
@@ -263,13 +322,11 @@ export default function CreateBroadcast() {
     }
   };
 
-  // New: Handler for scheduled broadcast selection dropdown
   const handleScheduledBroadcastChange = (broadcastId) => {
     setSelectedScheduledBroadcast(broadcastId);
     if (broadcastId) {
       loadScheduledBroadcast(broadcastId);
     } else {
-      // Reset form data if "new broadcast" is selected
       setBroadcastData({
         title: "",
         description: "",
@@ -283,89 +340,13 @@ export default function CreateBroadcast() {
         rebroadcast_from_recording_id: "",
         rebroadcast_from_url: ""
       });
-      setSelectedCoverId(""); // Clear selected cover as well
+      setSelectedCoverId("");
     }
   };
-
-  // New: Filter covers based on selected broadcast or show all
-  useEffect(() => {
-    if (selectedScheduledBroadcast) {
-      // If a scheduled broadcast is selected, show covers linked to it AND template covers
-      const coversForScheduled = allCovers.filter(c => c.broadcast_id === selectedScheduledBroadcast);
-      const templateCovers = allCovers.filter(c => c.broadcast_id === null || c.broadcast_id === undefined);
-      setAvailableCovers([...templateCovers, ...coversForScheduled]);
-
-      // If a cover was already set for this scheduled broadcast, make sure it's selected in the dropdown
-      if (coversForScheduled.length > 0) {
-        setSelectedCoverId(coversForScheduled[0].id);
-      } else {
-        setSelectedCoverId(""); // No cover currently linked, default to empty
-      }
-    } else {
-      // If no scheduled broadcast is selected, show all covers that are not associated with any broadcast (templates)
-      setAvailableCovers(allCovers.filter(c => c.broadcast_id === null || c.broadcast_id === undefined));
-      setSelectedCoverId(""); // Clear cover selection for a new, unscheduled broadcast
-    }
-  }, [selectedScheduledBroadcast, allCovers]);
-
-  // Track listener stats
-  useEffect(() => {
-    if (isLive && currentBroadcast) {
-      // Clear any existing interval to prevent duplicates if component re-renders
-      if (statsIntervalRef.current) {
-        clearInterval(statsIntervalRef.current);
-      }
-
-      statsIntervalRef.current = setInterval(async () => {
-        try {
-          const listeners = await base44.entities.Listener.filter({
-            broadcast_id: currentBroadcast.id,
-            is_active: true
-          });
-
-          const count = listeners.length;
-          setListenerCount(count);
-
-          let currentPeakForStat = 0;
-          setPeakListeners(prevPeak => {
-            const newPeak = Math.max(prevPeak, count);
-            currentPeakForStat = newPeak; // Capture the potential new peak value for this stat entry
-            return newPeak;
-          });
-
-          // Save stats to database
-          const stat = await base44.entities.ListenerStats.create({
-            broadcast_id: currentBroadcast.id,
-            timestamp: new Date().toISOString(),
-            active_listeners: count,
-            peak_listeners: currentPeakForStat // Use the value determined by setPeakListeners
-          });
-
-          setListenerStats(prev => [...prev.slice(-19), stat]); // Keep last 20 entries (20 * 10s = 200s or ~3.3 minutes)
-        } catch (error) {
-          console.error("Error tracking listener stats:", error);
-        }
-      }, 10000); // Every 10 seconds
-
-      return () => {
-        if (statsIntervalRef.current) {
-          clearInterval(statsIntervalRef.current);
-          statsIntervalRef.current = null;
-        }
-      };
-    } else {
-      // If broadcast is not live, ensure interval is cleared
-      if (statsIntervalRef.current) {
-        clearInterval(statsIntervalRef.current);
-        statsIntervalRef.current = null;
-      }
-    }
-  }, [isLive, currentBroadcast]); // Dependencies: only when live status or currentBroadcast changes, we re-setup the interval
 
   const createBroadcastMutation = useMutation({
     mutationFn: (data) => base44.entities.Broadcast.create(data),
     onSuccess: (data) => {
-      // setCurrentBroadcast handled in startBroadcast for clarity
       queryClient.invalidateQueries({ queryKey: ['broadcasts'] });
     },
   });
@@ -383,7 +364,7 @@ export default function CreateBroadcast() {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: false, // Managed manually by gainNodeRef
+          autoGainControl: false,
           sampleRate: 48000,
           ...(deviceId && { deviceId: { exact: deviceId } })
         }
@@ -392,7 +373,6 @@ export default function CreateBroadcast() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
 
-      // Setup audio processing
       setupAudioProcessing(stream);
 
       setError(null);
@@ -404,7 +384,6 @@ export default function CreateBroadcast() {
   };
 
   const setupAudioProcessing = (stream) => {
-    // If an audio context already exists and is not closed, close it first
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
     }
@@ -414,35 +393,30 @@ export default function CreateBroadcast() {
 
     const source = audioContext.createMediaStreamSource(stream);
 
-    // Gain Node
     const gainNode = audioContext.createGain();
     gainNode.gain.value = audioSettings.gain;
     gainNodeRef.current = gainNode;
 
-    // Compressor
     const compressor = audioContext.createDynamicsCompressor();
-    compressor.threshold.value = -50; // default: -24
-    compressor.knee.value = 40;     // default: 30
-    compressor.ratio.value = 12;    // default: 12
-    compressor.attack.value = 0;    // default: 0.003
-    compressor.release.value = 0.25; // default: 0.25
+    compressor.threshold.value = -50;
+    compressor.knee.value = 40;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0;
+    compressor.release.value = 0.25;
     compressorRef.current = compressor;
 
-    // Bass EQ (Low Shelf)
     const bassEQ = audioContext.createBiquadFilter();
     bassEQ.type = 'lowshelf';
-    bassEQ.frequency.value = 200; // Frequencies below 200Hz
+    bassEQ.frequency.value = 200;
     bassEQ.gain.value = audioSettings.bass;
     bassEQRef.current = bassEQ;
 
-    // Treble EQ (High Shelf)
     const trebleEQ = audioContext.createBiquadFilter();
     trebleEQ.type = 'highshelf';
-    trebleEQ.frequency.value = 3000; // Frequencies above 3000Hz
+    trebleEQ.frequency.value = 3000;
     trebleEQ.gain.value = audioSettings.treble;
     trebleEQRef.current = trebleEQ;
 
-    // Connect nodes
     source.connect(gainNode);
     gainNode.connect(compressor);
     compressor.connect(bassEQ);
@@ -466,18 +440,44 @@ export default function CreateBroadcast() {
 
   const handleDeviceChange = async (deviceId) => {
     setSelectedDeviceId(deviceId);
-    if (isLive && streamRef.current) {
-      // Stop current stream and audio context
+    if (isLive && streamRef.current && !broadcastData.has_video) {
       streamRef.current.getTracks().forEach(track => track.stop());
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close();
       }
 
-      // Start with new device
       const newStream = await requestMicrophoneAccess(deviceId);
       if (newStream) {
         streamRef.current = newStream;
       }
+    }
+  };
+
+  const createNewBroadcastAndDesignCover = async () => {
+    if (!broadcastData.title.trim()) {
+      setError("يرجى إدخال عنوان للبث أولاً");
+      return;
+    }
+
+    try {
+      const newBroadcast = await createBroadcastMutation.mutateAsync({
+        title: broadcastData.title,
+        description: broadcastData.description,
+        category: broadcastData.category,
+        lecturer_name: broadcastData.lecturer_name || "د.إبراهيم الشربيني",
+        series_id: broadcastData.series_id || null,
+        episode_number: broadcastData.episode_number || null,
+        broadcaster_name: user.full_name || user.email,
+        broadcaster_id: user.id,
+        is_scheduled: true,
+        scheduled_at: new Date().toISOString(),
+        is_live: false,
+      });
+
+      navigate(createPageUrl(`BroadcastCoverEditor?broadcast_id=${newBroadcast.id}&return_to_start=true`));
+    } catch (error) {
+      setError("فشل إنشاء البث: " + error.message);
+      console.error("Error creating scheduled broadcast for cover design:", error);
     }
   };
 
@@ -494,7 +494,6 @@ export default function CreateBroadcast() {
 
     setIsConnecting(true);
 
-    // Check for existing active broadcast by the current user
     try {
       const existingBroadcasts = await base44.entities.Broadcast.filter({
         broadcaster_id: user.id,
@@ -508,7 +507,6 @@ export default function CreateBroadcast() {
             <p>لديك بث نشط بالفعل. يرجى إنهاء البث الحالي قبل بدء بث جديد.</p>
             <Button
               onClick={() => {
-                // Reload the page with the active broadcast ID
                 window.location.href = createPageUrl(`CreateBroadcast?active=${activeBroadcast.id}`);
               }}
               className="w-full bg-gradient-to-r from-purple-500 to-pink-500"
@@ -524,7 +522,6 @@ export default function CreateBroadcast() {
       let broadcastToStart = null;
 
       if (selectedScheduledBroadcast) {
-        // Scenario 1: Starting a scheduled broadcast
         const scheduled = scheduledBroadcasts.find(b => b.id === selectedScheduledBroadcast);
         if (!scheduled) {
           setError("البث المجدول المحدد غير موجود أو غير متاح.");
@@ -536,9 +533,8 @@ export default function CreateBroadcast() {
           id: scheduled.id,
           data: {
             is_live: true,
-            is_scheduled: false, // Mark as no longer scheduled
+            is_scheduled: false,
             started_at: new Date().toISOString(),
-            // Update other fields from current form data
             title: broadcastData.title,
             description: broadcastData.description,
             category: broadcastData.category,
@@ -554,10 +550,9 @@ export default function CreateBroadcast() {
             broadcaster_id: user.id,
           }
         });
-        queryClient.invalidateQueries({ queryKey: ['scheduledBroadcastsCreate'] }); // Invalidate scheduled list
-        queryClient.invalidateQueries({ queryKey: ['broadcastCover', scheduled.id] }); // Invalidate cover for this broadcast
+        queryClient.invalidateQueries({ queryKey: ['scheduledBroadcastsCreate'] });
+        queryClient.invalidateQueries({ queryKey: ['broadcastCover', scheduled.id] });
       } else {
-        // Scenario 2: Creating a brand new broadcast
         broadcastToStart = await createBroadcastMutation.mutateAsync({
           title: broadcastData.title,
           description: broadcastData.description,
@@ -568,7 +563,7 @@ export default function CreateBroadcast() {
           broadcaster_name: user.full_name || user.email,
           broadcaster_id: user.id,
           is_live: true,
-          is_muted_for_all: true, // Default to muted for all on start
+          is_muted_for_all: true,
           started_at: new Date().toISOString(),
           listener_count: 0,
           total_listeners: 0,
@@ -580,30 +575,22 @@ export default function CreateBroadcast() {
         });
       }
 
-      // Common actions after broadcastToStart is defined
       if (broadcastToStart) {
-        // Handle cover association
         const currentLinkedCover = (await base44.entities.BroadcastCover.filter({ broadcast_id: broadcastToStart.id }))[0];
 
         if (selectedCoverId) {
-          // A specific cover template was chosen
           if (currentLinkedCover && currentLinkedCover.id !== selectedCoverId) {
-            // If there was a different cover previously linked, unlink it
             await base44.entities.BroadcastCover.update(currentLinkedCover.id, { broadcast_id: null });
           }
-          // Link the selected cover to this broadcast
           await base44.entities.BroadcastCover.update(selectedCoverId, { broadcast_id: broadcastToStart.id });
-          queryClient.invalidateQueries({ queryKey: ['broadcastCover', broadcastToStart.id] }); // Invalidate the cache for the broadcast's cover
+          queryClient.invalidateQueries({ queryKey: ['broadcastCover', broadcastToStart.id] });
         } else {
-          // No cover selected (or "بدون غلاف" was chosen)
           if (currentLinkedCover) {
-            // If a cover was previously linked, unlink it
             await base44.entities.BroadcastCover.update(currentLinkedCover.id, { broadcast_id: null });
-            queryClient.invalidateQueries({ queryKey: ['broadcastCover', broadcastToStart.id] }); // Invalidate the cache for the broadcast's cover
+            queryClient.invalidateQueries({ queryKey: ['broadcastCover', broadcastToStart.id] });
           }
         }
 
-        // Send notifications to followers
         try {
           await base44.functions.invoke('notifyFollowers', {
             broadcast_id: broadcastToStart.id,
@@ -619,7 +606,7 @@ export default function CreateBroadcast() {
         setError(null);
         setListenerStats([]);
         setPeakListeners(0);
-        setCurrentBroadcast(broadcastToStart); // Set current broadcast after all operations
+        setCurrentBroadcast(broadcastToStart);
       }
 
     } catch (error) {
@@ -631,14 +618,38 @@ export default function CreateBroadcast() {
 
   const handleAgoraTrackReady = (track) => {
     setAgoraTrack(track);
-    // If using Agora track, we don't need the Web Audio API processing for sending,
-    // as Agora handles its own processing. We keep `streamRef.current` for the visualizer.
-    // The visualizer will use the Agora track's MediaStreamTrack.
     streamRef.current = new MediaStream([track.getMediaStreamTrack()]);
+  };
+
+  const handleVideoTrackReady = (track) => {
+    setVideoTrack(track);
   };
 
   const handleAgoraError = (error) => {
     setError(`خطأ في الاتصال: ${error.message}`);
+  };
+
+  const pauseBroadcast = async () => {
+    if (agoraTrack) {
+      await agoraTrack.setMuted(true);
+    }
+    if (videoTrack) {
+      await videoTrack.setMuted(true);
+    }
+    setIsBroadcastPaused(true);
+  };
+
+  const resumeBroadcast = async () => {
+    if (agoraTrack) {
+      await agoraTrack.setMuted(false);
+    }
+    if (videoTrack) {
+      await videoTrack.setMuted(false);
+    }
+    setIsBroadcastPaused(false);
+    if (isMuted && agoraTrack) {
+      agoraTrack.setMuted(true);
+    }
   };
 
   const stopBroadcast = async () => {
@@ -647,13 +658,11 @@ export default function CreateBroadcast() {
     try {
       const duration = Math.floor((Date.now() - startTimeRef.current) / 60000);
 
-      // Clear stats interval
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
         statsIntervalRef.current = null;
       }
 
-      // Mark all listeners as inactive
       const listeners = await base44.entities.Listener.filter(
         { broadcast_id: currentBroadcast.id, is_active: true }
       );
@@ -668,7 +677,7 @@ export default function CreateBroadcast() {
           is_live: false,
           ended_at: new Date().toISOString(),
           duration_minutes: duration,
-          total_listeners: peakListeners // Use the accumulated peak listeners
+          total_listeners: peakListeners
         }
       });
 
@@ -682,7 +691,15 @@ export default function CreateBroadcast() {
         audioContextRef.current = null;
       }
 
-      // Notify followers about new recording
+      if (agoraTrack) {
+        agoraTrack.close();
+        setAgoraTrack(null);
+      }
+      if (videoTrack) {
+        videoTrack.close();
+        setVideoTrack(null);
+      }
+
       try {
         await base44.functions.invoke('notifyFollowers', {
           broadcast_id: currentBroadcast.id,
@@ -708,11 +725,13 @@ export default function CreateBroadcast() {
         rebroadcast_from_url: ""
       });
       setListenerCount(0);
-      setAgoraTrack(null); // Clear Agora track state
-      setListenerStats([]); // Clear stats for next broadcast
-      setPeakListeners(0); // Reset peak listeners
-      setSelectedScheduledBroadcast(""); // Reset scheduled broadcast selection
-      setSelectedCoverId(""); // Reset cover selection
+      setAgoraTrack(null);
+      setVideoTrack(null);
+      setIsBroadcastPaused(false);
+      setListenerStats([]);
+      setPeakListeners(0);
+      setSelectedScheduledBroadcast("");
+      setSelectedCoverId("");
 
       navigate(createPageUrl("MyBroadcasts"));
     } catch (error) {
@@ -721,20 +740,31 @@ export default function CreateBroadcast() {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (isLive && currentBroadcast) {
+        if (agoraTrack) agoraTrack.close();
+        if (videoTrack) videoTrack.close();
+        if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
+      }
+    };
+  }, [isLive, currentBroadcast, agoraTrack, videoTrack]);
+
   const toggleMute = () => {
-    // When using Web Audio API, muting means disconnecting the source or setting gain to 0
+    if (isBroadcastPaused) return;
+
     if (agoraTrack) {
-      // If using Agora track, use its mute function
       agoraTrack.setMuted(!isMuted);
       setIsMuted(!isMuted);
     } else if (gainNodeRef.current) {
       if (!isMuted) {
-        gainNodeRef.current.gain.value = 0; // Mute by setting gain to 0
+        gainNodeRef.current.gain.value = 0;
       } else {
-        gainNodeRef.current.gain.value = audioSettings.gain; // Restore previous gain
+        gainNodeRef.current.gain.value = audioSettings.gain;
       }
       setIsMuted(!isMuted);
-    } else if (streamRef.current) { // Fallback if audio processing not active
+    } else if (streamRef.current) {
       streamRef.current.getAudioTracks().forEach(track => {
         track.enabled = isMuted;
       });
@@ -826,15 +856,26 @@ export default function CreateBroadcast() {
                   <CardContent className="pt-6 space-y-6">
                     <BroadcastCover broadcastId={currentBroadcast?.id} />
 
-                    <AgoraAudioBroadcaster
-                      channelName={currentBroadcast?.id}
-                      isActive={isLive}
-                      deviceId={selectedDeviceId}
-                      onTrackReady={handleAgoraTrackReady}
-                      onError={handleAgoraError}
-                    />
+                    {broadcastData.has_video ? (
+                      <AgoraVideoBroadcaster
+                        channelName={currentBroadcast?.id}
+                        isActive={isLive}
+                        onVideoTrackReady={handleVideoTrackReady}
+                        onError={handleAgoraError}
+                      />
+                    ) : (
+                      <AgoraAudioBroadcaster
+                        channelName={currentBroadcast?.id}
+                        isActive={isLive}
+                        deviceId={selectedDeviceId}
+                        onTrackReady={handleAgoraTrackReady}
+                        onError={handleAgoraError}
+                      />
+                    )}
 
-                    <AudioVisualizer isActive={!isMuted} audioStream={streamRef.current} />
+                    {!broadcastData.has_video && (
+                      <AudioVisualizer isActive={!isMuted && !isBroadcastPaused} audioStream={streamRef.current} />
+                    )}
 
                     <div className="flex items-center justify-center gap-6 text-gray-700 flex-wrap">
                       <div className="flex items-center gap-2 bg-white rounded-xl px-6 py-3 shadow-md">
@@ -851,15 +892,39 @@ export default function CreateBroadcast() {
                     </div>
 
                     <div className="flex gap-4 justify-center flex-wrap">
-                      <Button
-                        onClick={toggleMute}
-                        variant="outline"
-                        size="lg"
-                        className="gap-2 hover:bg-purple-50 border-2"
-                      >
-                        {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                        {isMuted ? "تشغيل الصوت" : "كتم الصوت"}
-                      </Button>
+                      {!isBroadcastPaused ? (
+                        <Button
+                          onClick={pauseBroadcast}
+                          variant="outline"
+                          size="lg"
+                          className="gap-2 border-2 border-yellow-500 text-yellow-600"
+                        >
+                          <Pause className="w-5 h-5" />
+                          إيقاف مؤقت
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={resumeBroadcast}
+                          variant="outline"
+                          size="lg"
+                          className="gap-2 border-2 border-green-500 text-green-600"
+                        >
+                          <Play className="w-5 h-5" />
+                          استئناف البث
+                        </Button>
+                      )}
+
+                      {!isBroadcastPaused && (
+                        <Button
+                          onClick={toggleMute}
+                          variant="outline"
+                          size="lg"
+                          className="gap-2 hover:bg-purple-50 border-2"
+                        >
+                          {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                          {isMuted ? "تشغيل الصوت" : "كتم الصوت"}
+                        </Button>
+                      )}
 
                       <MuteAllControl
                         broadcast={currentBroadcast}
@@ -870,13 +935,8 @@ export default function CreateBroadcast() {
                         onClick={stopBroadcast}
                         size="lg"
                         className="gap-2 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 shadow-xl"
-                        disabled={updateBroadcastMutation.isPending}
                       >
-                        {updateBroadcastMutation.isPending ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <Radio className="w-5 h-5" />
-                        )}
+                        <Radio className="w-5 h-5" />
                         <span className="font-bold text-base">إنهاء البث</span>
                       </Button>
                     </div>
@@ -897,12 +957,29 @@ export default function CreateBroadcast() {
                 </AlertDescription>
               </Alert>
 
-              <RecordingControls
+              {!broadcastData.has_video && (
+                <RecordingControls
+                  broadcastId={currentBroadcast?.id}
+                  broadcastTitle={broadcastData.title}
+                  audioStream={streamRef.current}
+                  autoStart={true}
+                  coverId={broadcastCover?.id}
+                />
+              )}
+
+              {broadcastData.has_video && (
+                <VideoRecordingControls
+                  broadcastId={currentBroadcast?.id}
+                  broadcastTitle={broadcastData.title}
+                  autoStart={false}
+                  coverId={broadcastCover?.id}
+                />
+              )}
+
+              <BroadcastMarkers
                 broadcastId={currentBroadcast?.id}
-                broadcastTitle={broadcastData.title}
-                audioStream={streamRef.current}
-                autoStart={true}
-                coverId={broadcastCover?.id}
+                currentTime={elapsedTime}
+                canManage={true}
               />
 
               <ListenerStatsChart
@@ -933,7 +1010,6 @@ export default function CreateBroadcast() {
               <CardTitle className="text-2xl">معلومات البث</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* New: Select from Scheduled Broadcasts */}
               <div className="space-y-2">
                 <Label htmlFor="scheduled" className="text-base font-semibold">
                   اختر من البثوث المجدولة (اختياري)
@@ -943,10 +1019,10 @@ export default function CreateBroadcast() {
                     <SelectValue placeholder="بث جديد (بدون جدولة)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={null}>بث جديد (بدون جدولة)</SelectItem>
+                    <SelectItem value={null}>بث جديد</SelectItem>
                     {scheduledBroadcasts.map((sb) => (
                       <SelectItem key={sb.id} value={sb.id}>
-                        {sb.title} - {new Date(sb.scheduled_at).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {sb.title} - {new Date(sb.scheduled_at).toLocaleDateString('ar-EG')}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -984,7 +1060,6 @@ export default function CreateBroadcast() {
                 />
               </div>
 
-              {/* NEW: Series Selection */}
               <div className="space-y-2">
                 <Label className="text-base font-semibold">
                   السلسلة (اختياري)
@@ -1005,7 +1080,6 @@ export default function CreateBroadcast() {
                 </Select>
               </div>
 
-              {/* NEW: Episode Number (shown only if series selected) */}
               {broadcastData.series_id && (
                 <div className="space-y-2">
                   <Label className="text-base font-semibold">
@@ -1055,7 +1129,21 @@ export default function CreateBroadcast() {
                 </Select>
               </div>
 
-              {/* NEW: Rebroadcast Options */}
+              <div className="flex items-center space-x-2 space-x-reverse p-4 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border-2 border-indigo-200">
+                <Checkbox
+                  id="has_video"
+                  checked={broadcastData.has_video}
+                  onCheckedChange={(checked) => setBroadcastData({ ...broadcastData, has_video: checked })}
+                />
+                <Label htmlFor="has_video" className="cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Video className="w-5 h-5 text-indigo-600" />
+                    <span className="font-semibold">تفعيل بث الفيديو</span>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1">سيتم بث الصوت والفيديو معاً</p>
+                </Label>
+              </div>
+
               <div className="space-y-4 p-4 bg-gradient-to-br from-orange-50 to-red-50 rounded-xl border-2 border-orange-100">
                 <Label className="text-base font-semibold flex items-center gap-2">
                   <Radio className="w-5 h-5 text-orange-600" />
@@ -1071,14 +1159,14 @@ export default function CreateBroadcast() {
                     onValueChange={(value) => setBroadcastData({
                       ...broadcastData,
                       rebroadcast_from_recording_id: value === "none" ? "" : value,
-                      rebroadcast_from_url: "" // Clear URL if recording selected
+                      rebroadcast_from_url: ""
                     })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="بث جديد (بدون إعادة)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">بث جديد (بدون إعادة)</SelectItem>
+                      <SelectItem value="none">بث جديد</SelectItem>
                       {recordings.map((r) => (
                         <SelectItem key={r.id} value={r.id}>
                           {r.title} - {Math.floor((r.duration_seconds || 0) / 60)} دقيقة
@@ -1108,7 +1196,7 @@ export default function CreateBroadcast() {
                     onChange={(e) => setBroadcastData({
                       ...broadcastData,
                       rebroadcast_from_url: e.target.value,
-                      rebroadcast_from_recording_id: "" // Clear recording if URL entered
+                      rebroadcast_from_recording_id: ""
                     })}
                     disabled={!!broadcastData.rebroadcast_from_recording_id}
                   />
@@ -1149,7 +1237,6 @@ export default function CreateBroadcast() {
                 </div>
               </div>
 
-              {/* New: Select Cover */}
               {availableCovers.length > 0 && (
                 <div className="space-y-2">
                   <Label className="text-base font-semibold">
@@ -1176,8 +1263,7 @@ export default function CreateBroadcast() {
                 </div>
               )}
 
-              {/* New: Cover Preview Button */}
-              {(broadcastData.title || selectedCoverId) && ( // Show preview button if title exists OR a cover is selected
+              {(broadcastData.title || selectedCoverId) && (
                 <div className="space-y-2">
                   <Button
                     onClick={() => setShowCoverPreview(!showCoverPreview)}
@@ -1196,19 +1282,39 @@ export default function CreateBroadcast() {
                       className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50"
                     >
                       <p className="text-sm text-gray-600 mb-3">
-                        💡 هذه معاينة للغلاف - تأكد من إنشاء غلاف في صفحة "تصميم الغلاف" أولاً
+                        💡 هذه معاينة للغلاف
                       </p>
-                      {/*
-                        BroadcastCover component expects a broadcast_id.
-                        This will show the cover associated with the selected scheduled broadcast,
-                        or a generic preview if no scheduled broadcast is selected.
-                      */}
                       <BroadcastCover
                         broadcastId={selectedScheduledBroadcast || "preview"}
                         className="max-w-2xl mx-auto"
                       />
                     </motion.div>
                   )}
+                </div>
+              )}
+
+              {!selectedScheduledBroadcast && broadcastData.title.trim() && (
+                <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 border-2 border-indigo-200">
+                  <div className="flex items-start gap-3 mb-3">
+                    <Sparkles className="w-5 h-5 text-indigo-600 mt-1" />
+                    <div>
+                      <p className="font-semibold text-indigo-900 mb-1">
+                        إنشاء سريع مع غلاف
+                      </p>
+                      <p className="text-sm text-indigo-700">
+                        احفظ البث كبث مجدول وانتقل لتصميم الغلاف، ثم يمكنك بدء البث لاحقاً.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={createNewBroadcastAndDesignCover}
+                    variant="outline"
+                    className="w-full gap-2 border-2 border-indigo-300 hover:bg-indigo-100"
+                    disabled={isConnecting}
+                  >
+                    <Image className="w-5 h-5" />
+                    إنشاء البث وتصميم الغلاف
+                  </Button>
                 </div>
               )}
 

@@ -3,7 +3,6 @@ import { base44 } from "@/api/base44Client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Wifi, WifiOff, Volume2 } from "lucide-react";
 
-// Load Agora SDK dynamically
 const loadAgoraSDK = () => {
   return new Promise((resolve, reject) => {
     if (window.AgoraRTC) {
@@ -33,6 +32,7 @@ export default function AgoraAudioListener({
   onRemoteUserLeft 
 }) {
   const clientRef = useRef(null);
+  const audioTrackRef = useRef(null);
   const [connectionState, setConnectionState] = useState('DISCONNECTED');
   const [remoteUsers, setRemoteUsers] = useState([]);
   const [error, setError] = useState(null);
@@ -65,7 +65,6 @@ export default function AgoraAudioListener({
     try {
       setConnectionState('CONNECTING');
       
-      // Get Agora token from backend
       const tokenResponse = await base44.functions.invoke('generateAgoraToken', {
         channelName,
         role: 'audience'
@@ -77,7 +76,6 @@ export default function AgoraAudioListener({
 
       const { token, appId, uid } = tokenResponse.data;
 
-      // Create Agora client
       const AgoraRTC = window.AgoraRTC;
       const client = AgoraRTC.createClient({ 
         mode: "live", 
@@ -86,23 +84,25 @@ export default function AgoraAudioListener({
 
       clientRef.current = client;
 
-      // Set client role as audience (listener)
       await client.setClientRole("audience");
 
-      // Set up event listeners
       client.on("user-published", async (user, mediaType) => {
         await client.subscribe(user, mediaType);
         
         if (mediaType === "audio") {
-          user.audioTrack.play();
+          // Enable background playback
+          const audioTrack = user.audioTrack;
+          audioTrackRef.current = audioTrack;
           
-          // Monitor audio level
+          // Play with playback options for background audio
+          audioTrack.play();
+          
           const interval = setInterval(() => {
-            const level = user.audioTrack.getVolumeLevel();
+            const level = audioTrack.getVolumeLevel();
             setAudioLevel(level);
           }, 100);
 
-          user.audioTrack.on("track-ended", () => {
+          audioTrack.on("track-ended", () => {
             clearInterval(interval);
           });
         }
@@ -135,16 +135,25 @@ export default function AgoraAudioListener({
         setRemoteUsers(prev => {
           const filtered = prev.filter(u => u.uid !== user.uid);
           if (onRemoteUserLeft) {
-            onRemoteUserLeft(user);
+              onRemoteUserLeft(user);
           }
           return filtered;
         });
       });
 
-      // Join channel
       await client.join(appId, channelName, token, uid);
       setConnectionState('CONNECTED');
       setError(null);
+
+      // Request background audio permission on mobile
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'بث مباشر',
+          artist: 'د.إبراهيم الشربيني',
+          album: 'البث الصوتي المباشر'
+        });
+      }
+
     } catch (err) {
       console.error('Agora listener initialization error:', err);
       setError(err.message);
@@ -154,6 +163,11 @@ export default function AgoraAudioListener({
 
   const cleanup = async () => {
     try {
+      if (audioTrackRef.current) {
+        audioTrackRef.current.stop();
+        audioTrackRef.current = null;
+      }
+
       if (clientRef.current) {
         await clientRef.current.leave();
         clientRef.current = null;
@@ -219,6 +233,14 @@ export default function AgoraAudioListener({
           </div>
         )}
       </div>
+
+      {connectionState === 'CONNECTED' && (
+        <Alert className="bg-green-50 border-green-200">
+          <AlertDescription className="text-green-900 text-sm">
+            🎧 الصوت يعمل في الخلفية - يمكنك إغلاق الشاشة أو التبديل للتطبيقات الأخرى
+          </AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="destructive">

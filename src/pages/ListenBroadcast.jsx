@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,15 +9,15 @@ import { Volume2, VolumeX, Users, Clock, AlertCircle, ArrowRight, Loader2, Check
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { formatDistanceToNow } from "date-fns";
-import { ar } from "date-fns/locale";
 import AudioVisualizer from "../components/broadcast/AudioVisualizer";
 import LiveIndicator from "../components/broadcast/LiveIndicator";
 import ChatBox from "../components/broadcast/ChatBox";
 import ListenersList from "../components/broadcast/ListenersList";
 import ShareButton from "../components/broadcast/ShareButton";
 import AgoraAudioListener from "../components/broadcast/AgoraAudioListener";
+import AgoraVideoListener from "../components/video/AgoraVideoListener";
 import BroadcastCover from "../components/broadcast/BroadcastCover";
+import BroadcastMarkers from "../components/broadcast/BroadcastMarkers";
 
 export default function ListenBroadcast() {
   const navigate = useNavigate();
@@ -32,8 +31,8 @@ export default function ListenBroadcast() {
   const [isMuted, setIsMuted] = useState(false);
   const [currentListener, setCurrentListener] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
   
-  // Use ref to track if autoplay has been triggered
   const autoplayTriggeredRef = useRef(false);
 
   useEffect(() => {
@@ -48,7 +47,6 @@ export default function ListenBroadcast() {
     fetchUser();
   }, []);
 
-  // Separate effect for autoplay to avoid infinite loop
   useEffect(() => {
     if (autoplay && user && !isListening && !isConnecting && !autoplayTriggeredRef.current) {
       autoplayTriggeredRef.current = true;
@@ -67,6 +65,33 @@ export default function ListenBroadcast() {
     refetchInterval: 3000,
     enabled: !!broadcastId,
   });
+
+  useEffect(() => {
+    if (!broadcast?.started_at) return;
+    
+    const updateTime = () => {
+      const started = new Date(broadcast.started_at).getTime();
+      const now = Date.now();
+      const elapsed = Math.floor((now - started) / 1000);
+      setElapsedTime(elapsed);
+    };
+    
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    
+    return () => clearInterval(interval);
+  }, [broadcast?.started_at]);
+
+  const formatElapsedTime = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const updateBroadcastMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Broadcast.update(id, data),
@@ -96,7 +121,6 @@ export default function ListenBroadcast() {
     setIsConnecting(true);
     
     try {
-      // Check if user already has an active listener record
       const existingListeners = await base44.entities.Listener.filter({
         broadcast_id: broadcastId,
         user_id: user.id,
@@ -104,14 +128,12 @@ export default function ListenBroadcast() {
       });
 
       let listener;
-      let incrementListenerCount = false; // Flag to determine if listener count should be incremented
+      let incrementListenerCount = false;
 
       if (existingListeners.length > 0) {
-        // Reuse existing listener record
         listener = existingListeners[0];
         setCurrentListener(listener);
       } else {
-        // Create new listener record
         listener = await createListenerMutation.mutateAsync({
           broadcast_id: broadcastId,
           user_id: user.id,
@@ -120,10 +142,9 @@ export default function ListenBroadcast() {
           is_active: true,
           is_muted: false
         });
-        incrementListenerCount = true; // Mark to increment count as it's a new listener
+        incrementListenerCount = true;
       }
 
-      // Update broadcast listener count only for new listeners
       if (incrementListenerCount && broadcast) {
         await updateBroadcastMutation.mutateAsync({
           id: broadcast.id,
@@ -168,7 +189,43 @@ export default function ListenBroadcast() {
   };
 
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isListening) {
+        console.log('Page hidden, continuing playback...');
+      }
+    };
+
+    const handleBeforeUnload = async (e) => {
+      if (isListening && currentListener) {
+        e.preventDefault(); 
+        e.returnValue = '';
+        
+        try {
+          await updateListenerMutation.mutateAsync({
+            id: currentListener.id,
+            data: { is_active: false }
+          });
+          if (broadcast) {
+            await updateBroadcastMutation.mutateAsync({
+              id: broadcast.id,
+              data: {
+                listener_count: Math.max(0, (broadcast.listener_count || 0) - 1)
+              }
+            });
+          }
+        } catch (error) {
+          console.error("Error cleaning up listener on beforeunload:", error);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      
       if (currentListener && isListening) {
         updateListenerMutation.mutate({
           id: currentListener.id,
@@ -176,22 +233,10 @@ export default function ListenBroadcast() {
         });
       }
     };
-  }, []);
+  }, [isListening, currentListener, updateListenerMutation, updateBroadcastMutation, broadcast]);
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
-  };
-
-  const getTimeAgo = () => {
-    if (!broadcast?.started_at) return "";
-    try {
-      return formatDistanceToNow(new Date(broadcast.started_at), {
-        addSuffix: true,
-        locale: ar
-      });
-    } catch {
-      return "الآن";
-    }
   };
 
   const handleRemoteUserJoined = (user) => {
@@ -288,15 +333,16 @@ export default function ListenBroadcast() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-6 mt-4 text-sm text-gray-600">
+                  <div className="flex items-center gap-6 mt-4 text-sm text-gray-600 flex-wrap">
                     <div className="flex items-center gap-2 bg-white rounded-lg px-4 py-2">
                       <Users className="w-4 h-4 text-purple-600" />
                       <span className="font-bold text-lg">{broadcast.listener_count || 0}</span>
                       <span>مستمع</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      <span>بدأ {getTimeAgo()}</span>
+                    <div className="flex items-center gap-2 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg px-4 py-2 border border-green-200">
+                      <Clock className="w-4 h-4 text-green-600" />
+                      <span className="font-bold text-green-900">{formatElapsedTime(elapsedTime)}</span>
+                      <span className="text-green-700">منذ البداية</span>
                     </div>
                   </div>
 
@@ -344,18 +390,24 @@ export default function ListenBroadcast() {
                     </motion.div>
                   ) : (
                     <>
-                      {/* Broadcast Cover - Instead of Video */}
                       <BroadcastCover broadcastId={broadcastId} />
 
-                      {/* Agora Audio Listener */}
-                      <AgoraAudioListener
-                        channelName={broadcastId}
-                        isActive={isListening}
-                        onRemoteUserJoined={handleRemoteUserJoined}
-                        onRemoteUserLeft={handleRemoteUserLeft}
-                      />
-
-                      <AudioVisualizer isActive={!isMuted} />
+                      {broadcast.has_video ? (
+                        <AgoraVideoListener
+                          channelName={broadcastId}
+                          isActive={isListening}
+                        />
+                      ) : (
+                        <>
+                          <AgoraAudioListener
+                            channelName={broadcastId}
+                            isActive={isListening}
+                            onRemoteUserJoined={handleRemoteUserJoined}
+                            onRemoteUserLeft={handleRemoteUserLeft}
+                          />
+                          <AudioVisualizer isActive={!isMuted} />
+                        </>
+                      )}
 
                       <div className="flex gap-4 justify-center">
                         <Button
@@ -398,6 +450,14 @@ export default function ListenBroadcast() {
                 </CardContent>
               </Card>
             </motion.div>
+
+            {isListening && (
+              <BroadcastMarkers 
+                broadcastId={broadcastId}
+                currentTime={elapsedTime}
+                canManage={false}
+              />
+            )}
 
             {user && isListening && (
               <div className="h-[500px]">

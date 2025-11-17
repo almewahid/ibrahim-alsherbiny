@@ -16,7 +16,11 @@ import SeriesManager from './pages/SeriesManager';
 import SeriesPublic from './pages/SeriesPublic';
 import Analytics from './pages/Analytics';
 import UserProfile from './pages/UserProfile';
-import Layout from './Layout.jsx';
+import Quizzes from './pages/Quizzes';
+import TakeQuiz from './pages/TakeQuiz';
+import QuizManager from './pages/QuizManager';
+import RecordingDetail from './pages/RecordingDetail';
+import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
@@ -38,10 +42,14 @@ export const PAGES = {
     "SeriesPublic": SeriesPublic,
     "Analytics": Analytics,
     "UserProfile": UserProfile,
+    "Quizzes": Quizzes,
+    "TakeQuiz": TakeQuiz,
+    "QuizManager": QuizManager,
+    "RecordingDetail": RecordingDetail,
 }
 
 export const pagesConfig = {
     mainPage: "Home",
     Pages: PAGES,
-    Layout: Layout,
+    Layout: __Layout,
 };

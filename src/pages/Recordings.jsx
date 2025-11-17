@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +17,15 @@ import RecordingCard from "../components/broadcast/RecordingCard";
 
 const categories = ["الكل", "علوم شرعية", "تفسير القرآن", "الحديث النبوي", "الفقه الإسلامي", "السيرة النبوية", "تربية وتزكية", "نقاش", "أخرى"];
 
-const formatDuration = (seconds) => {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+const CATEGORY_COLORS = {
+  "علوم شرعية": "bg-purple-100 text-purple-800",
+  "تفسير القرآن": "bg-green-100 text-green-800",
+  "الحديث النبوي": "bg-blue-100 text-blue-800",
+  "الفقه الإسلامي": "bg-yellow-100 text-yellow-800",
+  "السيرة النبوية": "bg-pink-100 text-pink-800",
+  "تربية وتزكية": "bg-indigo-100 text-indigo-800",
+  "نقاش": "bg-orange-100 text-orange-800",
+  "أخرى": "bg-gray-100 text-gray-800"
 };
 
 export default function Recordings() {
@@ -141,26 +145,22 @@ export default function Recordings() {
     }
   });
 
-  // Get unique broadcasters
   const broadcasters = useMemo(() => {
     const uniqueBroadcasters = [...new Set(recordings.map(r => r.broadcaster_name))];
-    return ["الكل", ...uniqueBroadcasters.filter(Boolean)]; // Filter out null/undefined broadcaster_name
+    return ["الكل", ...uniqueBroadcasters.filter(Boolean)];
   }, [recordings]);
 
   const filteredRecordings = useMemo(() => {
     let result = recordings;
 
-    // Filter by category
     if (selectedCategory !== "الكل") {
       result = result.filter(r => r.category === selectedCategory);
     }
 
-    // Filter by broadcaster
     if (selectedBroadcaster !== "الكل") {
       result = result.filter(r => r.broadcaster_name === selectedBroadcaster);
     }
 
-    // Filter by date
     if (dateFilter !== "all") {
       const now = Date.now();
       const dayMs = 24 * 60 * 60 * 1000;
@@ -174,7 +174,6 @@ export default function Recordings() {
       });
     }
 
-    // Filter by search
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(r =>
@@ -184,7 +183,6 @@ export default function Recordings() {
       );
     }
 
-    // Sort
     if (sortBy === "date") {
       result.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     } else if (sortBy === "views") {
@@ -200,7 +198,6 @@ export default function Recordings() {
     return result;
   }, [recordings, selectedCategory, selectedBroadcaster, dateFilter, searchQuery, sortBy]);
 
-  // Group by series
   const groupedRecordings = useMemo(() => {
     const grouped = {};
     const withoutSeries = [];
@@ -219,7 +216,7 @@ export default function Recordings() {
     return { grouped, withoutSeries };
   }, [filteredRecordings]);
 
-  const handleCategorizeRecording = async (recording) => {
+  const handleCategorizeRecording = useCallback(async (recording) => {
     if (!confirm(`هل تريد تصنيف "${recording.title}" تلقائياً باستخدام الذكاء الاصطناعي؟`)) {
       return;
     }
@@ -239,9 +236,9 @@ export default function Recordings() {
     } finally {
       setCategorizingRecording(null);
     }
-  };
+  }, [queryClient]);
 
-  const handleGenerateSummary = async (recording) => {
+  const handleGenerateSummary = useCallback(async (recording) => {
     if (!confirm(`هل تريد توليد ملخص AI لـ "${recording.title}"؟`)) {
       return;
     }
@@ -261,13 +258,13 @@ export default function Recordings() {
     } finally {
       setGeneratingSummary(null);
     }
-  };
+  }, [queryClient]);
 
-  const handleShowAnalytics = async (recording) => {
+  const handleShowAnalytics = useCallback(async (recording) => {
     setSelectedRecording(recording);
     setShowAnalyticsDialog(true);
     setLoadingAnalytics(true);
-    setAnalyticsData(null); // Clear previous data
+    setAnalyticsData(null);
 
     try {
       const response = await base44.functions.invoke('getRecordingAnalytics', {
@@ -284,9 +281,9 @@ export default function Recordings() {
     } finally {
       setLoadingAnalytics(false);
     }
-  };
+  }, []);
 
-  const playRecording = async (recording) => {
+  const playRecording = useCallback(async (recording) => {
     try {
       if (playingId === recording.id && isPlaying) {
         audioRef.current.pause();
@@ -317,22 +314,35 @@ export default function Recordings() {
       console.error("Error playing recording:", error);
       alert("فشل تشغيل التسجيل");
     }
-  };
+  }, [playingId, isPlaying]);
 
-  const seekTo = (value) => {
-    audioRef.current.currentTime = value[0];
-    setCurrentTime(value[0]);
-  };
+  const seekTo = useCallback((value) => {
+    const newTime = value[0];
+    if (isFinite(newTime) && newTime >= 0 && audioRef.current) {
+      audioRef.current.currentTime = newTime;
+    }
+  }, []);
 
-  const skipBackward = () => {
-    audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
-  };
+  const skipBackward = useCallback(() => {
+    if (audioRef.current) {
+      const currentTimeValue = audioRef.current.currentTime;
+      if (isFinite(currentTimeValue)) {
+        audioRef.current.currentTime = Math.max(0, currentTimeValue - 10);
+      }
+    }
+  }, []);
 
-  const skipForward = () => {
-    audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 10);
-  };
+  const skipForward = useCallback(() => {
+    if (audioRef.current) {
+      const currentTimeValue = audioRef.current.currentTime;
+      const durationValue = duration;
+      if (isFinite(currentTimeValue) && isFinite(durationValue)) {
+        audioRef.current.currentTime = Math.min(durationValue, currentTimeValue + 10);
+      }
+    }
+  }, [duration]);
 
-  const downloadRecording = async (recording) => {
+  const downloadRecording = useCallback(async (recording) => {
     try {
       const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
         file_uri: recording.file_uri,
@@ -351,16 +361,16 @@ export default function Recordings() {
       console.error("Error downloading recording:", error);
       alert("فشل تحميل التسجيل");
     }
-  };
+  }, []);
 
-  const handleConvertToVideo = (recording) => {
+  const handleConvertToVideo = useCallback((recording) => {
     if (confirm(`هل تريد تحويل "${recording.title}" إلى فيديو؟\nهذا قد يستغرق بضع دقائق.`)) {
       setConvertingToVideo(recording.id);
       convertToVideoMutation.mutate(recording.id);
     }
-  };
+  }, [convertToVideoMutation]);
 
-  const openEditDialog = (recording) => {
+  const openEditDialog = useCallback((recording) => {
     setEditingRecording(recording);
     setEditData({
       title: recording.title,
@@ -368,9 +378,20 @@ export default function Recordings() {
       category: recording.category || "علوم شرعية",
       series_id: recording.series_id || ""
     });
-  };
+  }, []);
 
-  const handleUpdateRecording = () => {
+  const handleDeleteRecording = useCallback((recording) => {
+    if (confirm(`هل أنت متأكد من حذف التسجيل "${recording.title}"؟`)) {
+      deleteRecordingMutation.mutate(recording.id);
+    }
+  }, [deleteRecordingMutation]);
+
+  const showStats = useCallback((recording) => {
+    setSelectedRecording(recording);
+    setShowStatsDialog(true);
+  }, []);
+
+  const handleUpdateRecording = useCallback(() => {
     if (!editData.title.trim()) {
       alert('يرجى إدخال عنوان التسجيل');
       return;
@@ -380,33 +401,7 @@ export default function Recordings() {
       id: editingRecording.id,
       data: editData
     });
-  };
-
-  const handleDeleteRecording = (recording) => {
-    if (confirm(`هل أنت متأكد من حذف التسجيل "${recording.title}"؟`)) {
-      deleteRecordingMutation.mutate(recording.id);
-    }
-  };
-
-  const showStats = (recording) => {
-    setSelectedRecording(recording);
-    setShowStatsDialog(true);
-  };
-
-  const getRecordingBroadcast = (broadcastId) => {
-    return broadcasts.find(b => b.id === broadcastId);
-  };
-
-  const categoryColors = {
-    "علوم شرعية": "bg-purple-100 text-purple-800",
-    "تفسير القرآن": "bg-green-100 text-green-800",
-    "الحديث النبوي": "bg-blue-100 text-blue-800",
-    "الفقه الإسلامي": "bg-yellow-100 text-yellow-800",
-    "السيرة النبوية": "bg-pink-100 text-pink-800",
-    "تربية وتزكية": "bg-indigo-100 text-indigo-800",
-    "نقاش": "bg-orange-100 text-orange-800",
-    "أخرى": "bg-gray-100 text-gray-800"
-  };
+  }, [editData, editingRecording, updateRecordingMutation]);
 
   const stats = {
     total: recordings.length,
@@ -458,7 +453,6 @@ export default function Recordings() {
             placeholder="ابحث في التسجيلات حسب العنوان، المحاضر، أو الوصف..."
           />
 
-          {/* UPDATED: Unified filters for both mobile and desktop */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <Select value={selectedCategory} onValueChange={setSelectedCategory}>
               <SelectTrigger className="border-2 h-11">
@@ -608,7 +602,7 @@ export default function Recordings() {
                         categorizingRecording={categorizingRecording}
                         generatingSummary={generatingSummary}
                         user={user}
-                        categoryColors={categoryColors}
+                        categoryColors={CATEGORY_COLORS}
                       />
                     ))}
                   </div>
@@ -644,7 +638,7 @@ export default function Recordings() {
                       categorizingRecording={categorizingRecording}
                       generatingSummary={generatingSummary}
                       user={user}
-                      categoryColors={categoryColors}
+                      categoryColors={CATEGORY_COLORS}
                     />
                   ))}
                 </div>

@@ -1,5 +1,4 @@
-
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,10 +8,8 @@ import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
 import BroadcastCover from "./BroadcastCover";
-import { useNavigate } from "react-router-dom"; // Import useNavigate
-
-// Placeholder for createPageUrl - replace with actual import path if available
-const createPageUrl = (path) => `/dashboard/${path}`;
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
 
 const formatDuration = (seconds) => {
   const mins = Math.floor(seconds / 60);
@@ -47,47 +44,50 @@ export default function RecordingCard({
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
 
-  if (!recording) {
-    return null;
-  }
-
-  const getCategoryColor = (category) => {
+  const getCategoryColor = useCallback((category) => {
     if (!categoryColors || typeof categoryColors !== 'object') {
       return "bg-gray-100 text-gray-800";
     }
     return categoryColors[category] || categoryColors["أخرى"] || "bg-gray-100 text-gray-800";
-  };
+  }, [categoryColors]);
 
-  const handleCopySummary = () => {
+  const handleCopySummary = useCallback(() => {
     if (recording.description) {
       navigator.clipboard.writeText(recording.description);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
+  }, [recording.description]);
 
-  const handleShareSummary = () => {
+  const handleShareSummary = useCallback(() => {
     if (recording.description && navigator.share) {
       navigator.share({
         title: recording.title,
         text: recording.description,
       });
     }
-  };
+  }, [recording.description, recording.title]);
 
-  // NEW: Download video function
-  const handleDownloadVideo = async () => {
+  const handleDownloadVideo = useCallback(() => {
     if (convertingToVideo === recording.id) return;
     
     if (confirm(`هل تريد تحويل "${recording.title}" إلى فيديو وتحميله؟\nهذا قد يستغرق بضع دقائق.`)) {
       handleConvertToVideo(recording);
     }
-  };
+  }, [convertingToVideo, recording, handleConvertToVideo]);
 
-  const handleCardClick = () => {
-    // Navigate to recording details page
-    navigate(createPageUrl(`RecordingDetails?id=${recording.id}`));
-  };
+  const handleCardClick = useCallback(() => {
+    navigate(createPageUrl(`RecordingDetail?id=${recording.id}`));
+  }, [navigate, recording.id]);
+
+  const handlePlayClick = useCallback((e) => {
+    e.stopPropagation();
+    playRecording(recording);
+  }, [playRecording, recording]);
+
+  if (!recording) {
+    return null;
+  }
 
   return (
     <motion.div
@@ -121,12 +121,10 @@ export default function RecordingCard({
         </CardHeader>
 
         <CardContent className="space-y-4" onClick={(e) => e.stopPropagation()}>
-          {/* Cover */}
           {recording.cover_id && (
             <BroadcastCover broadcastId={recording.broadcast_id} className="rounded-xl" />
           )}
 
-          {/* Description with AI Summary Actions */}
           {recording.description && (
             <div className="bg-gray-50 rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between">
@@ -161,7 +159,6 @@ export default function RecordingCard({
             </div>
           )}
 
-          {/* Stats */}
           <div className="grid grid-cols-4 gap-2 text-xs">
             <div className="bg-blue-50 rounded-lg p-2 text-center">
               <Clock className="w-4 h-4 text-blue-600 mx-auto mb-1" />
@@ -181,7 +178,6 @@ export default function RecordingCard({
             </div>
           </div>
 
-          {/* Player Controls - Only show if this card is playing */}
           {playingId === recording.id && (
             <div className="space-y-3 bg-purple-50 rounded-xl p-4">
               <div className="flex items-center justify-between text-sm">
@@ -200,7 +196,7 @@ export default function RecordingCard({
                   <SkipBack className="w-4 h-4" />
                 </Button>
                 <Button
-                  onClick={() => playRecording(recording)}
+                  onClick={handlePlayClick}
                   size="sm"
                   className="bg-gradient-to-r from-purple-500 to-pink-500"
                 >
@@ -213,13 +209,9 @@ export default function RecordingCard({
             </div>
           )}
 
-          {/* Quick Play Button (if not playing) */}
           {playingId !== recording.id && (
             <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                playRecording(recording);
-              }}
+              onClick={handlePlayClick}
               className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 gap-2"
             >
               <Play className="w-4 h-4" />
@@ -227,7 +219,6 @@ export default function RecordingCard({
             </Button>
           )}
 
-          {/* Action Buttons */}
           <div className="grid grid-cols-2 gap-2">
             <Button
               onClick={() => downloadRecording(recording)}
@@ -239,7 +230,6 @@ export default function RecordingCard({
               صوت
             </Button>
 
-            {/* NEW: Download Video Button */}
             <Button
               onClick={handleDownloadVideo}
               variant="outline"
@@ -334,7 +324,6 @@ export default function RecordingCard({
             )}
           </div>
 
-          {/* Timestamp */}
           <p className="text-xs text-gray-500 text-center">
             {recording.recorded_at 
               ? formatDistanceToNow(new Date(recording.recorded_at), { addSuffix: true, locale: ar })

@@ -2,7 +2,7 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Radio, Home, Mic, User, LogOut, MessageCircle, Settings, Image, Sun, Layers, BarChart3 } from "lucide-react";
+import { Radio, Home, Mic, User, LogOut, MessageCircle, Settings, Image, Sun, Layers, BarChart3, Target } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import {
   Sidebar,
@@ -44,6 +44,11 @@ const navigationItems = [
     title: "السلاسل",
     url: createPageUrl("SeriesPublic"),
     icon: Layers,
+  },
+  {
+    title: "الاختبارات",
+    url: createPageUrl("Quizzes"),
+    icon: Target,
   },
   {
     title: "الرسائل",
@@ -92,6 +97,11 @@ const adminNavigationItems = [
     title: "إدارة السلاسل",
     url: createPageUrl("SeriesManager"),
     icon: Layers,
+  },
+  {
+    title: "إدارة الاختبارات",
+    url: createPageUrl("QuizManager"),
+    icon: Target,
   },
   {
     title: "الإحصائيات",
