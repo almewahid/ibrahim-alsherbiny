@@ -2,6 +2,9 @@
 .env
 .env.*
 
+# Firebase Admin SDK
+serviceAccountKey.json
+
 # Logs
 logs
 *.log
