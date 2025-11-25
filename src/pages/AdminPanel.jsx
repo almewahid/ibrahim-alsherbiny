@@ -3,7 +3,6 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -16,6 +15,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+// Helper function to safely format dates
 const safeFormatDate = (dateString) => {
   if (!dateString) return 'غير محدد';
   try {
@@ -32,12 +32,11 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [user, setUser] = React.useState(null);
-  const [selectedTab, setSelectedTab] = useState("settings");
+  const [activeTab, setActiveTab] = useState("settings");
   const [editingItem, setEditingItem] = useState(null);
   const [broadcastMessage, setBroadcastMessage] = useState({ title: "", message: "" });
   const [isSending, setIsSending] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [userFilter, setUserFilter] = useState({ role: "all", searchQuery: "" });
 
   React.useEffect(() => {
     const fetchUser = async () => {
@@ -47,46 +46,63 @@ export default function AdminPanel() {
     fetchUser();
   }, []);
 
+  // Fetch active broadcasts
   const { data: activeBroadcasts = [], refetch: refetchBroadcasts } = useQuery({
     queryKey: ['activeBroadcasts'],
     queryFn: () => base44.entities.Broadcast.filter({ is_live: true }),
     refetchInterval: 5000,
-    enabled: selectedTab === "settings",
+    enabled: activeTab === "settings",
   });
 
+  // Fetch Hadiths
   const { data: hadiths = [] } = useQuery({
     queryKey: ['hadiths'],
     queryFn: () => base44.entities.Hadith.list(),
-    enabled: selectedTab === "hadiths",
+    enabled: activeTab === "hadiths",
   });
 
-  const { data: seriesForAdmin = [] } = useQuery({
-    queryKey: ['seriesForAdmin'],
-    queryFn: () => base44.entities.Series.list(),
+  // Fetch Series
+  const { data: series = [] } = useQuery({
+    queryKey: ['adminSeries'],
+    queryFn: () => base44.entities.Series.list("-created_date"),
+    enabled: activeTab === "series",
   });
 
-  const { data: users = [] } = useQuery({
+  // Fetch Markers
+  const { data: markers = [] } = useQuery({
+    queryKey: ['adminMarkers'],
+    queryFn: () => base44.entities.BroadcastMarker.list("-created_date"),
+    enabled: activeTab === "markers",
+  });
+
+  const { data: broadcastsForMarkers = [] } = useQuery({
+    queryKey: ['broadcastsForMarkers'],
+    queryFn: () => base44.entities.Broadcast.list(),
+    enabled: activeTab === "markers",
+  });
+
+  // Fetch all users for admin panel
+  const { data: allUsers = [] } = useQuery({
     queryKey: ['allUsers'],
     queryFn: () => base44.entities.User.list("-created_date"),
+    enabled: activeTab === "users",
   });
 
-  const { data: allAttempts = [] } = useQuery({
-    queryKey: ['allQuizAttempts'],
-    queryFn: () => base44.entities.QuizAttempt.list(),
-  });
-
+  // Fetch recent recordings for stats
   const { data: recordings = [] } = useQuery({
     queryKey: ['allRecordings'],
-    queryFn: () => base44.entities.Recording.list("-created_date", 20),
-    enabled: selectedTab === "stats",
+    queryFn: () => base44.entities.Recording.list("-created_date", 20), // Fetch last 20 recordings
+    enabled: activeTab === "stats",
   });
 
+  // Fetch recent broadcasts for stats
   const { data: broadcasts = [] } = useQuery({
     queryKey: ['allBroadcasts'],
-    queryFn: () => base44.entities.Broadcast.list("-created_date", 20),
-    enabled: selectedTab === "stats",
+    queryFn: () => base44.entities.Broadcast.list("-created_date", 20), // Fetch last 20 broadcasts
+    enabled: activeTab === "stats",
   });
 
+  // Hadith CRUD mutations
   const updateHadithMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Hadith.update(id, data),
     onSuccess: () => {
@@ -112,16 +128,26 @@ export default function AdminPanel() {
     }
   });
 
+  // Series CRUD mutations
   const deleteSeriesMutation = useMutation({
     mutationFn: (id) => base44.entities.Series.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['seriesForAdmin'] });
+      queryClient.invalidateQueries({ queryKey: ['adminSeries'] });
       alert('✅ تم حذف السلسلة بنجاح');
     },
     onError: (error) => {
       console.error('Error deleting series:', error);
       alert('❌ فشل حذف السلسلة');
     }
+  });
+
+  // Marker CRUD mutations
+  const deleteMarkerMutation = useMutation({
+    mutationFn: (id) => base44.entities.BroadcastMarker.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adminMarkers'] });
+      alert('✅ تم حذف العلامة بنجاح');
+    },
   });
 
   const sendBroadcastMessage = async () => {
@@ -195,6 +221,7 @@ export default function AdminPanel() {
     try {
       const duration = Math.floor((Date.now() - new Date(broadcast.started_at).getTime()) / 60000);
 
+      // Mark all listeners as inactive
       const listeners = await base44.entities.Listener.filter({
         broadcast_id: broadcast.id,
         is_active: true
@@ -218,42 +245,6 @@ export default function AdminPanel() {
     }
   };
 
-  const filteredUsers = users.filter(u => {
-    const roleMatch = userFilter.role === "all" || u.role === userFilter.role || u.custom_role === userFilter.role;
-    const searchMatch = !userFilter.searchQuery || 
-      u.full_name?.toLowerCase().includes(userFilter.searchQuery.toLowerCase()) ||
-      u.email?.toLowerCase().includes(userFilter.searchQuery.toLowerCase());
-    return roleMatch && searchMatch;
-  });
-
-  const getUserStats = (userId) => {
-    const attempts = allAttempts.filter(a => a.user_id === userId);
-    const totalScore = attempts.reduce((sum, a) => sum + a.percentage, 0);
-    const avgScore = attempts.length > 0 ? Math.round(totalScore / attempts.length) : 0;
-
-    const seriesScores = {};
-    attempts.forEach(attempt => {
-      if (attempt.series_id) {
-        if (!seriesScores[attempt.series_id]) {
-          seriesScores[attempt.series_id] = { total: 0, count: 0 };
-        }
-        seriesScores[attempt.series_id].total += attempt.percentage;
-        seriesScores[attempt.series_id].count += 1;
-      }
-    });
-
-    return {
-      totalAttempts: attempts.length,
-      avgScore,
-      seriesScores: Object.entries(seriesScores).map(([seriesId, data]) => ({
-        seriesId,
-        seriesName: seriesForAdmin.find(s => s.id === seriesId)?.title || "غير معروف",
-        avg: Math.round(data.total / data.count),
-        count: data.count
-      }))
-    };
-  };
-
   if (!user || user.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -271,10 +262,10 @@ export default function AdminPanel() {
   }
 
   const stats = {
-    totalUsers: users.length,
-    totalBroadcasts: broadcasts.length,
-    totalRecordings: recordings.length,
-    totalSeries: seriesForAdmin.length,
+    totalUsers: allUsers.length,
+    totalBroadcasts: broadcasts.length, // counts from the 20 most recent
+    totalRecordings: recordings.length, // counts from the 20 most recent
+    totalSeries: series.length,
     totalViews: recordings.reduce((sum, r) => sum + (r.views_count || 0), 0),
     liveBroadcasts: broadcasts.filter(b => b.is_live).length
   };
@@ -294,96 +285,51 @@ export default function AdminPanel() {
             <p className="text-lg text-gray-600">إدارة المنصة والبثوث والإشعارات</p>
           </div>
 
-          <Tabs value={selectedTab} onValueChange={setSelectedTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-5 h-12 bg-white border-2 border-purple-100">
-              <TabsTrigger value="users">المستخدمون</TabsTrigger>
-              <TabsTrigger value="hadiths">الأحاديث</TabsTrigger>
-              <TabsTrigger value="series">السلاسل</TabsTrigger>
-              <TabsTrigger value="stats">الإحصائيات</TabsTrigger>
-              <TabsTrigger value="settings">الإعدادات</TabsTrigger>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 h-12 bg-white border-2 border-purple-100 overflow-x-auto">
+              <TabsTrigger value="users" className="text-xs md:text-sm">المستخدمون</TabsTrigger>
+              <TabsTrigger value="hadiths" className="text-xs md:text-sm">الأحاديث</TabsTrigger>
+              <TabsTrigger value="series" className="text-xs md:text-sm">السلاسل</TabsTrigger>
+              <TabsTrigger value="markers" className="text-xs md:text-sm">العلامات</TabsTrigger>
+              <TabsTrigger value="stats" className="text-xs md:text-sm">الإحصائيات</TabsTrigger>
+              <TabsTrigger value="settings" className="text-xs md:text-sm">الإعدادات</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="users" className="mt-6">
+            {/* Users Tab */}
+            <TabsContent value="users">
               <Card className="border-2 border-purple-100">
                 <CardHeader>
-                  <CardTitle>إدارة المستخدمين ({users.length})</CardTitle>
+                  <CardTitle>إدارة المستخدمين ({allUsers.length})</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Input
-                      placeholder="بحث بالاسم أو البريد..."
-                      value={userFilter.searchQuery}
-                      onChange={(e) => setUserFilter({ ...userFilter, searchQuery: e.target.value })}
-                    />
-                    <Select value={userFilter.role} onValueChange={(value) => setUserFilter({ ...userFilter, role: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="اختر دور المستخدم" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">جميع الأدوار</SelectItem>
-                        <SelectItem value="admin">مشرف</SelectItem>
-                        <SelectItem value="user">مستخدم</SelectItem>
-                        <SelectItem value="broadcaster">مذيع</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
+                <CardContent>
                   <div className="space-y-3">
-                    {filteredUsers.map((u) => {
-                      const userRole = u.role === 'admin' ? 'مشرف' : u.custom_role === 'broadcaster' ? 'مذيع' : 'مستمع';
-                      const stats = getUserStats(u.id);
-                      return (
-                        <div key={u.id} className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-bold">
-                                {u.full_name?.[0]?.toUpperCase() || 'U'}
-                              </div>
-                              <div>
-                                <p className="font-bold">{u.full_name}</p>
-                                <p className="text-sm text-gray-600">{u.email}</p>
-                              </div>
-                            </div>
-                            <Badge className={u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}>
-                              {userRole}
-                            </Badge>
+                    {allUsers.slice(0, 20).map((u) => ( // Display only recent 20 users
+                      <div key={u.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                            {u.full_name?.[0]?.toUpperCase() || 'U'}
                           </div>
-                          
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                            <div className="bg-white rounded p-2">
-                              <p className="text-gray-600">الاختبارات</p>
-                              <p className="font-bold">{stats.totalAttempts}</p>
-                            </div>
-                            <div className="bg-white rounded p-2">
-                              <p className="text-gray-600">المعدل الكلي</p>
-                              <p className="font-bold">{stats.avgScore}%</p>
-                            </div>
-                            <div className="bg-white rounded p-2 md:col-span-2">
-                              <p className="text-gray-600 mb-1">المعدلات حسب السلسلة:</p>
-                              {stats.seriesScores.length > 0 ? (
-                                <div className="space-y-1">
-                                  {stats.seriesScores.map((s, i) => (
-                                    <p key={i} className="text-xs">
-                                      {s.seriesName}: <span className="font-bold">{s.avg}%</span> ({s.count})
-                                    </p>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-gray-500">- لا توجد بيانات</p>
-                              )}
-                            </div>
+                          <div>
+                            <p className="font-semibold">{u.full_name}</p>
+                            <p className="text-sm text-gray-600">{u.email}</p>
                           </div>
-                          <p className="text-xs text-gray-500 text-right mt-3">
-                            تاريخ الانضمام: {safeFormatDate(u.created_date)}
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <Badge className={u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}>
+                            {u.role === 'admin' ? 'مشرف' : u.custom_role === 'broadcaster' ? 'مذيع' : 'مستمع'}
+                          </Badge>
+                          <p className="text-xs text-gray-500">
+                            {safeFormatDate(u.created_date)}
                           </p>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
+            {/* Hadiths Tab */}
             <TabsContent value="hadiths">
               <Card className="border-2 border-purple-100">
                 <CardHeader>
@@ -471,11 +417,78 @@ export default function AdminPanel() {
               </Card>
             </TabsContent>
 
+            {/* Markers Tab */}
+            <TabsContent value="markers">
+              <Card className="border-2 border-purple-100">
+                <CardHeader>
+                  <CardTitle>إدارة العلامات ({markers.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {markers.map((marker) => {
+                      const broadcast = broadcastsForMarkers.find(b => b.id === marker.broadcast_id);
+                      const formatTime = (seconds) => {
+                        const h = Math.floor(seconds / 3600);
+                        const m = Math.floor((seconds % 3600) / 60);
+                        const s = Math.floor(seconds % 60);
+                        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                        return `${m}:${s.toString().padStart(2, '0')}`;
+                      };
+                      
+                      return (
+                        <div key={marker.id} className="flex items-start justify-between p-4 bg-purple-50 rounded-lg gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <Badge className="bg-purple-100 text-purple-700">
+                                ⏱️ {formatTime(marker.timestamp_seconds)}
+                              </Badge>
+                              <Badge variant="outline">
+                                {marker.marker_type === 'topic_change' ? 'تغيير موضوع' :
+                                 marker.marker_type === 'important_point' ? 'نقطة مهمة' :
+                                 marker.marker_type === 'question' ? 'سؤال' :
+                                 marker.marker_type === 'reference' ? 'مرجع' : 'أخرى'}
+                              </Badge>
+                            </div>
+                            <h3 className="font-bold text-gray-900 mb-1">{marker.title}</h3>
+                            {marker.description && (
+                              <p className="text-sm text-gray-600 line-clamp-2">{marker.description}</p>
+                            )}
+                            {broadcast && (
+                              <p className="text-xs text-gray-500 mt-2">📻 {broadcast.title}</p>
+                            )}
+                          </div>
+                          <Button
+                            onClick={() => {
+                              if (confirm(`هل تريد حذف العلامة "${marker.title}"؟`)) {
+                                deleteMarkerMutation.mutate(marker.id);
+                              }
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 flex-shrink-0"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+
+                    {markers.length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        <p>لا توجد علامات بعد</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Series Tab */}
             <TabsContent value="series">
               <Card className="border-2 border-purple-100">
                 <CardHeader>
                   <div className="flex items-center justify-between">
-                    <CardTitle>إدارة السلاسل ({seriesForAdmin.length})</CardTitle>
+                    <CardTitle>إدارة السلاسل ({series.length})</CardTitle>
                     <Button onClick={() => navigate(createPageUrl("SeriesManager"))} className="bg-purple-600">
                       إضافة سلسلة جديدة
                     </Button>
@@ -483,7 +496,7 @@ export default function AdminPanel() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {seriesForAdmin.map((s) => (
+                    {series.map((s) => (
                       <div key={s.id} className="flex items-center justify-between p-4 bg-purple-50 rounded-lg">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
@@ -525,6 +538,7 @@ export default function AdminPanel() {
               </Card>
             </TabsContent>
 
+            {/* Stats Tab */}
             <TabsContent value="stats">
               <div className="space-y-6">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -540,7 +554,7 @@ export default function AdminPanel() {
                     <CardContent className="pt-6 text-center">
                       <Radio className="w-8 h-8 text-blue-600 mx-auto mb-2" />
                       <p className="text-3xl font-bold text-gray-900">{stats.totalBroadcasts}</p>
-                      <p className="text-sm text-gray-600">إجمالي البثوث</p>
+                      <p className="text-sm text-gray-600">إجمالي البثوث (آخر 20)</p>
                     </CardContent>
                   </Card>
 
@@ -548,7 +562,7 @@ export default function AdminPanel() {
                     <CardContent className="pt-6 text-center">
                       <Clock className="w-8 h-8 text-green-600 mx-auto mb-2" />
                       <p className="text-3xl font-bold text-gray-900">{stats.totalRecordings}</p>
-                      <p className="text-sm text-gray-600">إجمالي التسجيلات</p>
+                      <p className="text-sm text-gray-600">إجمالي التسجيلات (آخر 20)</p>
                     </CardContent>
                   </Card>
 
@@ -564,7 +578,7 @@ export default function AdminPanel() {
                     <CardContent className="pt-6 text-center">
                       <Eye className="w-8 h-8 text-red-600 mx-auto mb-2" />
                       <p className="text-3xl font-bold text-gray-900">{stats.totalViews}</p>
-                      <p className="text-sm text-gray-600">مشاهدات التسجيلات</p>
+                      <p className="text-sm text-gray-600">مشاهدات التسجيلات (آخر 20)</p>
                     </CardContent>
                   </Card>
 
@@ -594,7 +608,7 @@ export default function AdminPanel() {
                               {b.is_live ? '🔴 مباشر' : '⏸️ منتهي'}
                             </Badge>
                             <p className="text-xs text-gray-500 whitespace-nowrap">
-                              {safeFormatDate(b.created_date)}
+                              {safeFormatDate(b.created_at)}
                             </p>
                           </div>
                         </div>
@@ -605,8 +619,10 @@ export default function AdminPanel() {
               </div>
             </TabsContent>
 
+            {/* Settings Tab - Contains existing functionality */}
             <TabsContent value="settings">
               <div className="space-y-6">
+                {/* Active Broadcasts */}
                 {activeBroadcasts.length > 0 && (
                   <Card className="border-2 border-red-100 bg-red-50">
                     <CardHeader>
@@ -692,6 +708,7 @@ export default function AdminPanel() {
                   </Card>
                 )}
 
+                {/* Broadcast Message */}
                 <Card className="border-2 border-purple-100">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -739,6 +756,7 @@ export default function AdminPanel() {
                   </CardContent>
                 </Card>
 
+                {/* Quran Import */}
                 <Card className="border-2 border-blue-100">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">

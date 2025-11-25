@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,15 +17,10 @@ import RecordingCard from "../components/broadcast/RecordingCard";
 
 const categories = ["الكل", "علوم شرعية", "تفسير القرآن", "الحديث النبوي", "الفقه الإسلامي", "السيرة النبوية", "تربية وتزكية", "نقاش", "أخرى"];
 
-const CATEGORY_COLORS = {
-  "علوم شرعية": "bg-purple-100 text-purple-800",
-  "تفسير القرآن": "bg-green-100 text-green-800",
-  "الحديث النبوي": "bg-blue-100 text-blue-800",
-  "الفقه الإسلامي": "bg-yellow-100 text-yellow-800",
-  "السيرة النبوية": "bg-pink-100 text-pink-800",
-  "تربية وتزكية": "bg-indigo-100 text-indigo-800",
-  "نقاش": "bg-orange-100 text-orange-800",
-  "أخرى": "bg-gray-100 text-gray-800"
+const formatDuration = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
 export default function Recordings() {
@@ -50,6 +45,7 @@ export default function Recordings() {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [generatingSummary, setGeneratingSummary] = useState(null);
+  const [suggestingMarkers, setSuggestingMarkers] = useState(null);
   const audioRef = useRef(new Audio());
 
   useEffect(() => {
@@ -145,22 +141,26 @@ export default function Recordings() {
     }
   });
 
+  // Get unique broadcasters
   const broadcasters = useMemo(() => {
     const uniqueBroadcasters = [...new Set(recordings.map(r => r.broadcaster_name))];
-    return ["الكل", ...uniqueBroadcasters.filter(Boolean)];
+    return ["الكل", ...uniqueBroadcasters.filter(Boolean)]; // Filter out null/undefined broadcaster_name
   }, [recordings]);
 
   const filteredRecordings = useMemo(() => {
     let result = recordings;
 
+    // Filter by category
     if (selectedCategory !== "الكل") {
       result = result.filter(r => r.category === selectedCategory);
     }
 
+    // Filter by broadcaster
     if (selectedBroadcaster !== "الكل") {
       result = result.filter(r => r.broadcaster_name === selectedBroadcaster);
     }
 
+    // Filter by date
     if (dateFilter !== "all") {
       const now = Date.now();
       const dayMs = 24 * 60 * 60 * 1000;
@@ -174,6 +174,7 @@ export default function Recordings() {
       });
     }
 
+    // Filter by search
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(r =>
@@ -183,6 +184,7 @@ export default function Recordings() {
       );
     }
 
+    // Sort
     if (sortBy === "date") {
       result.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     } else if (sortBy === "views") {
@@ -198,6 +200,7 @@ export default function Recordings() {
     return result;
   }, [recordings, selectedCategory, selectedBroadcaster, dateFilter, searchQuery, sortBy]);
 
+  // Group by series
   const groupedRecordings = useMemo(() => {
     const grouped = {};
     const withoutSeries = [];
@@ -216,7 +219,7 @@ export default function Recordings() {
     return { grouped, withoutSeries };
   }, [filteredRecordings]);
 
-  const handleCategorizeRecording = useCallback(async (recording) => {
+  const handleCategorizeRecording = async (recording) => {
     if (!confirm(`هل تريد تصنيف "${recording.title}" تلقائياً باستخدام الذكاء الاصطناعي؟`)) {
       return;
     }
@@ -236,9 +239,9 @@ export default function Recordings() {
     } finally {
       setCategorizingRecording(null);
     }
-  }, [queryClient]);
+  };
 
-  const handleGenerateSummary = useCallback(async (recording) => {
+  const handleGenerateSummary = async (recording) => {
     if (!confirm(`هل تريد توليد ملخص AI لـ "${recording.title}"؟`)) {
       return;
     }
@@ -258,13 +261,34 @@ export default function Recordings() {
     } finally {
       setGeneratingSummary(null);
     }
-  }, [queryClient]);
+  };
 
-  const handleShowAnalytics = useCallback(async (recording) => {
+  const handleSuggestMarkers = async (recording) => {
+    if (!confirm(`هل تريد توليد علامات زمنية تلقائية لـ "${recording.title}"؟`)) {
+      return;
+    }
+
+    setSuggestingMarkers(recording.id);
+    try {
+      const response = await base44.functions.invoke('suggestMarkers', {
+        recording_id: recording.id
+      });
+
+      if (response.data.success) {
+        alert(`✅ ${response.data.message}`);
+      }
+    } catch (error) {
+      alert('فشل توليد العلامات: ' + error.message);
+    } finally {
+      setSuggestingMarkers(null);
+    }
+  };
+
+  const handleShowAnalytics = async (recording) => {
     setSelectedRecording(recording);
     setShowAnalyticsDialog(true);
     setLoadingAnalytics(true);
-    setAnalyticsData(null);
+    setAnalyticsData(null); // Clear previous data
 
     try {
       const response = await base44.functions.invoke('getRecordingAnalytics', {
@@ -281,9 +305,9 @@ export default function Recordings() {
     } finally {
       setLoadingAnalytics(false);
     }
-  }, []);
+  };
 
-  const playRecording = useCallback(async (recording) => {
+  const playRecording = async (recording) => {
     try {
       if (playingId === recording.id && isPlaying) {
         audioRef.current.pause();
@@ -292,20 +316,29 @@ export default function Recordings() {
       }
 
       if (playingId !== recording.id) {
-        const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
-          file_uri: recording.file_uri,
-          expires_in: 3600
-        });
-
-        if (signedUrlResponse && signedUrlResponse.signed_url) {
-          audioRef.current.src = signedUrlResponse.signed_url;
+        // Check if file_url (R2 public URL) exists, otherwise use signed URL
+        if (recording.file_url) {
+          audioRef.current.src = recording.file_url;
           setPlayingId(recording.id);
           setCurrentTime(0);
-
-          await base44.entities.Recording.update(recording.id, {
-            views_count: (recording.views_count || 0) + 1
+        } else if (recording.file_uri) {
+          const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
+            file_uri: recording.file_uri,
+            expires_in: 3600
           });
+
+          if (signedUrlResponse && signedUrlResponse.signed_url) {
+            audioRef.current.src = signedUrlResponse.signed_url;
+            setPlayingId(recording.id);
+            setCurrentTime(0);
+          }
+        } else {
+          throw new Error("لا يوجد رابط للتسجيل");
         }
+
+        await base44.entities.Recording.update(recording.id, {
+          views_count: (recording.views_count || 0) + 1
+        });
       }
 
       audioRef.current.play();
@@ -314,44 +347,38 @@ export default function Recordings() {
       console.error("Error playing recording:", error);
       alert("فشل تشغيل التسجيل");
     }
-  }, [playingId, isPlaying]);
+  };
 
-  const seekTo = useCallback((value) => {
-    const newTime = value[0];
-    if (isFinite(newTime) && newTime >= 0 && audioRef.current) {
-      audioRef.current.currentTime = newTime;
-    }
-  }, []);
+  const seekTo = (value) => {
+    audioRef.current.currentTime = value[0];
+    setCurrentTime(value[0]);
+  };
 
-  const skipBackward = useCallback(() => {
-    if (audioRef.current) {
-      const currentTimeValue = audioRef.current.currentTime;
-      if (isFinite(currentTimeValue)) {
-        audioRef.current.currentTime = Math.max(0, currentTimeValue - 10);
-      }
-    }
-  }, []);
+  const skipBackward = () => {
+    audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+  };
 
-  const skipForward = useCallback(() => {
-    if (audioRef.current) {
-      const currentTimeValue = audioRef.current.currentTime;
-      const durationValue = duration;
-      if (isFinite(currentTimeValue) && isFinite(durationValue)) {
-        audioRef.current.currentTime = Math.min(durationValue, currentTimeValue + 10);
-      }
-    }
-  }, [duration]);
+  const skipForward = () => {
+    audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 10);
+  };
 
-  const downloadRecording = useCallback(async (recording) => {
+  const downloadRecording = async (recording) => {
     try {
-      const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
-        file_uri: recording.file_uri,
-        expires_in: 300
-      });
+      let downloadUrl;
+      
+      if (recording.file_url) {
+        downloadUrl = recording.file_url;
+      } else if (recording.file_uri) {
+        const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
+          file_uri: recording.file_uri,
+          expires_in: 300
+        });
+        downloadUrl = signedUrlResponse?.signed_url;
+      }
 
-      if (signedUrlResponse && signedUrlResponse.signed_url) {
+      if (downloadUrl) {
         const a = document.createElement('a');
-        a.href = signedUrlResponse.signed_url;
+        a.href = downloadUrl;
         a.download = `${recording.title}.webm`;
         document.body.appendChild(a);
         a.click();
@@ -361,16 +388,16 @@ export default function Recordings() {
       console.error("Error downloading recording:", error);
       alert("فشل تحميل التسجيل");
     }
-  }, []);
+  };
 
-  const handleConvertToVideo = useCallback((recording) => {
+  const handleConvertToVideo = (recording) => {
     if (confirm(`هل تريد تحويل "${recording.title}" إلى فيديو؟\nهذا قد يستغرق بضع دقائق.`)) {
       setConvertingToVideo(recording.id);
       convertToVideoMutation.mutate(recording.id);
     }
-  }, [convertToVideoMutation]);
+  };
 
-  const openEditDialog = useCallback((recording) => {
+  const openEditDialog = (recording) => {
     setEditingRecording(recording);
     setEditData({
       title: recording.title,
@@ -378,20 +405,9 @@ export default function Recordings() {
       category: recording.category || "علوم شرعية",
       series_id: recording.series_id || ""
     });
-  }, []);
+  };
 
-  const handleDeleteRecording = useCallback((recording) => {
-    if (confirm(`هل أنت متأكد من حذف التسجيل "${recording.title}"؟`)) {
-      deleteRecordingMutation.mutate(recording.id);
-    }
-  }, [deleteRecordingMutation]);
-
-  const showStats = useCallback((recording) => {
-    setSelectedRecording(recording);
-    setShowStatsDialog(true);
-  }, []);
-
-  const handleUpdateRecording = useCallback(() => {
+  const handleUpdateRecording = () => {
     if (!editData.title.trim()) {
       alert('يرجى إدخال عنوان التسجيل');
       return;
@@ -401,7 +417,33 @@ export default function Recordings() {
       id: editingRecording.id,
       data: editData
     });
-  }, [editData, editingRecording, updateRecordingMutation]);
+  };
+
+  const handleDeleteRecording = (recording) => {
+    if (confirm(`هل أنت متأكد من حذف التسجيل "${recording.title}"؟`)) {
+      deleteRecordingMutation.mutate(recording.id);
+    }
+  };
+
+  const showStats = (recording) => {
+    setSelectedRecording(recording);
+    setShowStatsDialog(true);
+  };
+
+  const getRecordingBroadcast = (broadcastId) => {
+    return broadcasts.find(b => b.id === broadcastId);
+  };
+
+  const categoryColors = {
+    "علوم شرعية": "bg-purple-100 text-purple-800",
+    "تفسير القرآن": "bg-green-100 text-green-800",
+    "الحديث النبوي": "bg-blue-100 text-blue-800",
+    "الفقه الإسلامي": "bg-yellow-100 text-yellow-800",
+    "السيرة النبوية": "bg-pink-100 text-pink-800",
+    "تربية وتزكية": "bg-indigo-100 text-indigo-800",
+    "نقاش": "bg-orange-100 text-orange-800",
+    "أخرى": "bg-gray-100 text-gray-800"
+  };
 
   const stats = {
     total: recordings.length,
@@ -453,7 +495,8 @@ export default function Recordings() {
             placeholder="ابحث في التسجيلات حسب العنوان، المحاضر، أو الوصف..."
           />
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {/* UPDATED: Unified filters for both mobile and desktop */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <Select value={selectedCategory} onValueChange={setSelectedCategory}>
               <SelectTrigger className="border-2 h-11">
                 <SelectValue placeholder="الفئة" />
@@ -602,15 +645,17 @@ export default function Recordings() {
                         categorizingRecording={categorizingRecording}
                         generatingSummary={generatingSummary}
                         user={user}
-                        categoryColors={CATEGORY_COLORS}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+                        categoryColors={categoryColors}
+                        handleSuggestMarkers={handleSuggestMarkers}
+                        suggestingMarkers={suggestingMarkers}
+                        />
+                        ))}
+                        </div>
+                        </div>
+                        );
+                        })}
 
-            {groupedRecordings.withoutSeries.length > 0 && (
+                        {groupedRecordings.withoutSeries.length > 0 && (
               <div className="space-y-4">
                 <h2 className="text-2xl font-bold text-gray-900">تسجيلات أخرى</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -638,13 +683,15 @@ export default function Recordings() {
                       categorizingRecording={categorizingRecording}
                       generatingSummary={generatingSummary}
                       user={user}
-                      categoryColors={CATEGORY_COLORS}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-            </AnimatePresence>
+                      categoryColors={categoryColors}
+                      handleSuggestMarkers={handleSuggestMarkers}
+                      suggestingMarkers={suggestingMarkers}
+                      />
+                      ))}
+                      </div>
+                      </div>
+                      )}
+                      </AnimatePresence>
           </div>
         )}
       </div>

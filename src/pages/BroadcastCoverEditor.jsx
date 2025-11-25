@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -7,11 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, Eye, Sparkles, CheckCircle, Radio } from "lucide-react";
+import { Loader2, Save, Eye, Sparkles, Upload, FileText, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useNavigate } from "react-router-dom";
-import { createPageUrl } from "@/utils";
 
 const SURAH_NAMES = [
   "الفاتحة", "البقرة", "آل عمران", "النساء", "المائدة", "الأنعام", "الأعراف", "الأنفال",
@@ -40,10 +39,8 @@ const DESIGN_VARIANTS = [
 
 export default function BroadcastCoverEditor() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const urlParams = new URLSearchParams(window.location.search);
   const broadcastIdFromUrl = urlParams.get('broadcast_id');
-  const returnToStart = urlParams.get('return_to_start') === 'true';
   
   const [broadcastId, setBroadcastId] = useState(broadcastIdFromUrl || "");
   const [coverData, setCoverData] = useState({
@@ -78,6 +75,7 @@ export default function BroadcastCoverEditor() {
     enabled: coverData.template_type === "حديث",
   });
 
+  // Sort hadiths by number for dropdown display
   const sortedHadiths = useMemo(() => {
     return [...hadiths].sort((a, b) => (a.number || 0) - (b.number || 0));
   }, [hadiths]);
@@ -104,6 +102,7 @@ export default function BroadcastCoverEditor() {
     }
   };
 
+  // Load verses text when range changes
   useEffect(() => {
     if (coverData.template_type === "تفسير" && verses.length > 0 && coverData.verse_from && coverData.verse_to) {
       const selectedVerses = verses.filter(v => 
@@ -117,6 +116,7 @@ export default function BroadcastCoverEditor() {
     }
   }, [verses, coverData.verse_from, coverData.verse_to, coverData.template_type]);
 
+  // Load hadith text when number changes
   useEffect(() => {
     if (coverData.template_type === "حديث" && coverData.hadith_number && hadiths.length > 0) {
       const hadith = hadiths.find(h => h.number === parseInt(coverData.hadith_number));
@@ -131,40 +131,8 @@ export default function BroadcastCoverEditor() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['broadcastCovers'] });
       alert('✅ تم حفظ الغلاف بنجاح!');
-      
-      if (returnToStart && broadcastId) {
-        navigate(createPageUrl(`CreateBroadcast?scheduled=${broadcastId}`));
-      }
     },
   });
-
-  const createBroadcastAndStartLive = async () => {
-    try {
-      const user = await base44.auth.me();
-      
-      const newBroadcast = await base44.entities.Broadcast.create({
-        title: coverData.fixed_title,
-        description: coverData.morning_adhkar || "",
-        category: "تفسير القرآن",
-        lecturer_name: coverData.lecturer_name,
-        broadcaster_name: user.full_name || user.email,
-        broadcaster_id: user.id,
-        is_scheduled: true,
-        scheduled_at: new Date().toISOString(),
-        is_live: false
-      });
-
-      await base44.entities.BroadcastCover.create({
-        broadcast_id: newBroadcast.id,
-        ...coverData
-      });
-
-      queryClient.invalidateQueries({ queryKey: ['broadcastCovers'] });
-      navigate(createPageUrl(`CreateBroadcast?scheduled=${newBroadcast.id}`));
-    } catch (error) {
-      alert('فشل الإنشاء: ' + error.message);
-    }
-  };
 
   const generateSummary = async () => {
     setIsGeneratingSummary(true);
@@ -235,6 +203,7 @@ export default function BroadcastCoverEditor() {
         </motion.div>
 
         <div className="grid lg:grid-cols-2 gap-8">
+          {/* Form */}
           <Card className="border-2 border-purple-100">
             <CardHeader>
               <CardTitle>معلومات الغلاف</CardTitle>
@@ -285,6 +254,7 @@ export default function BroadcastCoverEditor() {
                 />
               </div>
 
+              {/* تفسير: Verse Range */}
               {coverData.template_type === "تفسير" && (
                 <>
                   <div className="space-y-2">
@@ -345,6 +315,7 @@ export default function BroadcastCoverEditor() {
                 </>
               )}
 
+              {/* حديث: Hadith Selection */}
               {coverData.template_type === "حديث" && (
                 <>
                   <div className="space-y-2">
@@ -379,6 +350,7 @@ export default function BroadcastCoverEditor() {
                 </>
               )}
 
+              {/* Other types: Image/PDF Upload */}
               {["فقه", "سيرة", "عام"].includes(coverData.template_type) && (
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -489,29 +461,12 @@ export default function BroadcastCoverEditor() {
                 ) : (
                   <Save className="w-5 h-5" />
                 )}
-                {returnToStart ? 'حفظ الغلاف والانتقال للبث' : 'حفظ الغلاف'}
+                حفظ الغلاف
               </Button>
-
-              {!broadcastIdFromUrl && (
-                <Button
-                  onClick={createBroadcastAndStartLive}
-                  variant="outline"
-                  className="w-full gap-2 border-2 border-green-300 text-green-700 hover:bg-green-50"
-                  disabled={isUploadingFile || isGeneratingSummary}
-                >
-                  <Radio className="w-5 h-5" />
-                  إنشاء بث جديد مع هذا الغلاف
-                </Button>
-              )}
-
-              {returnToStart && (
-                <p className="text-sm text-purple-600 text-center">
-                  💡 بعد الحفظ سيتم الانتقال تلقائياً لصفحة بدء البث
-                </p>
-              )}
             </CardContent>
           </Card>
 
+          {/* Preview */}
           <Card className="border-2 border-purple-100 sticky top-8">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

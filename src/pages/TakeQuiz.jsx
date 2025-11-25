@@ -3,12 +3,9 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Progress } from "@/components/ui/progress";
-import { Clock, CheckCircle, XCircle, Award, ArrowRight, Loader2 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
+import { Trophy, Clock, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
@@ -17,28 +14,22 @@ export default function TakeQuiz() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const quizId = urlParams.get('id');
-
+  
   const [user, setUser] = useState(null);
-  const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [timeLeft, setTimeLeft] = useState(null);
-  const [showResults, setShowResults] = useState(false);
-  const [results, setResults] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
   const [startTime] = useState(Date.now());
 
   useEffect(() => {
     const fetchUser = async () => {
-      try {
-        const currentUser = await base44.auth.me();
-        setUser(currentUser);
-      } catch (error) {
-        console.error("Error fetching user:", error);
-      }
+      const currentUser = await base44.auth.me();
+      setUser(currentUser);
     };
     fetchUser();
   }, []);
 
-  const { data: quiz } = useQuery({
+  const { data: quiz, isLoading } = useQuery({
     queryKey: ['quiz', quizId],
     queryFn: async () => {
       const quizzes = await base44.entities.Quiz.filter({ id: quizId });
@@ -47,110 +38,68 @@ export default function TakeQuiz() {
     enabled: !!quizId,
   });
 
-  const { data: questions = [] } = useQuery({
-    queryKey: ['quizQuestions', quizId],
-    queryFn: () => base44.entities.QuizQuestion.filter({ quiz_id: quizId }),
-    enabled: !!quizId,
-  });
-
-  useEffect(() => {
-    if (quiz?.time_limit_minutes) {
-      setTimeLeft(quiz.time_limit_minutes * 60);
-    }
-  }, [quiz]);
-
-  useEffect(() => {
-    if (timeLeft === null || timeLeft <= 0 || showResults) return;
-
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          handleSubmit();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeLeft, showResults]);
-
   const submitAttemptMutation = useMutation({
     mutationFn: (data) => base44.entities.QuizAttempt.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['myQuizAttempts'] });
-      queryClient.invalidateQueries({ queryKey: ['allQuizAttempts'] });
+      queryClient.invalidateQueries({ queryKey: ['quizAttempts'] });
     },
   });
 
-  const handleAnswerChange = (questionId, answer) => {
-    setAnswers({ ...answers, [questionId]: answer });
-  };
-
   const handleSubmit = async () => {
-    const correctAnswers = {};
-    const userAnswers = [];
-    let score = 0;
-    let totalPoints = 0;
+    if (Object.keys(answers).length < quiz.questions.length) {
+      if (!confirm('لم تجب على جميع الأسئلة. هل تريد التسليم؟')) {
+        return;
+      }
+    }
 
-    questions.forEach(q => {
-      totalPoints += q.points || 1;
-      const userAnswer = answers[q.id];
-      const isCorrect = userAnswer === q.correct_answer;
-      
-      correctAnswers[q.id] = {
-        correct: q.correct_answer,
-        explanation: q.explanation
-      };
-
-      userAnswers.push({
-        question_id: q.id,
-        user_answer: userAnswer || "",
-        is_correct: isCorrect
-      });
-
-      if (isCorrect) {
-        score += q.points || 1;
+    const timeTaken = Math.floor((Date.now() - startTime) / 1000);
+    const userAnswers = quiz.questions.map((_, index) => answers[index] ?? -1);
+    
+    let correctCount = 0;
+    quiz.questions.forEach((q, index) => {
+      if (userAnswers[index] === q.correct_answer) {
+        correctCount++;
       }
     });
 
-    const percentage = Math.round((score / totalPoints) * 100);
-    const timeTaken = Math.floor((Date.now() - startTime) / 1000);
-    const passed = percentage >= (quiz.passing_score || 60);
+    const score = Math.round((correctCount / quiz.questions.length) * 100);
+    const passed = score >= quiz.passing_score;
 
     const attemptData = {
       quiz_id: quizId,
-      series_id: quiz.series_id || null,
       user_id: user.id,
-      user_name: user.full_name || user.email,
-      score: score,
-      total_points: totalPoints,
-      percentage: percentage,
+      user_name: user.full_name,
       answers: userAnswers,
+      score,
+      passed,
       time_taken_seconds: timeTaken,
-      passed: passed,
       completed_at: new Date().toISOString()
     };
 
     await submitAttemptMutation.mutateAsync(attemptData);
 
-    setResults({
+    setResult({
       score,
-      totalPoints,
-      percentage,
       passed,
-      correctAnswers
+      correctCount,
+      totalQuestions: quiz.questions.length
     });
-    setShowResults(true);
+    setSubmitted(true);
   };
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  if (!quizId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-gray-600">اختبار غير صحيح</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-  if (!quiz || questions.length === 0) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-12 h-12 animate-spin text-purple-600" />
@@ -158,91 +107,79 @@ export default function TakeQuiz() {
     );
   }
 
-  if (showResults) {
+  if (!quiz) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-gray-600">الاختبار غير موجود</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (submitted && result) {
     return (
       <div className="min-h-screen p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
           >
-            <Card className="border-2 border-purple-100">
-              <CardHeader className="text-center">
-                <div className={`w-24 h-24 rounded-full mx-auto mb-4 flex items-center justify-center ${
-                  results.passed ? 'bg-green-100' : 'bg-red-100'
-                }`}>
-                  {results.passed ? (
-                    <CheckCircle className="w-12 h-12 text-green-600" />
+            <Card className={`border-4 ${result.passed ? 'border-green-300 bg-gradient-to-br from-green-50 to-emerald-50' : 'border-orange-300 bg-gradient-to-br from-orange-50 to-yellow-50'}`}>
+              <CardContent className="pt-12 pb-12 text-center">
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 ${result.passed ? 'bg-green-100' : 'bg-orange-100'}`}>
+                  {result.passed ? (
+                    <Trophy className="w-12 h-12 text-green-600" />
                   ) : (
-                    <XCircle className="w-12 h-12 text-red-600" />
+                    <CheckCircle className="w-12 h-12 text-orange-600" />
                   )}
                 </div>
-                <CardTitle className="text-3xl mb-2">
-                  {results.passed ? "🎉 مبروك! نجحت في الاختبار" : "حاول مرة أخرى"}
-                </CardTitle>
-                <p className="text-gray-600">
-                  {results.passed 
-                    ? "أحسنت! لقد أظهرت فهماً جيداً للمادة"
-                    : "لا تقلق، يمكنك إعادة المحاولة"}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6 text-center border-2 border-purple-200">
-                    <p className="text-sm text-gray-600 mb-2">درجتك</p>
-                    <p className="text-4xl font-bold text-purple-600">
-                      {results.score}/{results.totalPoints}
-                    </p>
-                  </div>
-                  <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-6 text-center border-2 border-blue-200">
-                    <p className="text-sm text-gray-600 mb-2">النسبة المئوية</p>
-                    <p className="text-4xl font-bold text-blue-600">{results.percentage}%</p>
-                  </div>
-                  <div className={`rounded-xl p-6 text-center border-2 ${
-                    results.passed 
-                      ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-200'
-                      : 'bg-gradient-to-br from-red-50 to-rose-50 border-red-200'
-                  }`}>
-                    <p className="text-sm text-gray-600 mb-2">النتيجة</p>
-                    <p className={`text-2xl font-bold ${results.passed ? 'text-green-600' : 'text-red-600'}`}>
-                      {results.passed ? "ناجح" : "راسب"}
-                    </p>
-                  </div>
+                
+                <h2 className="text-3xl font-bold text-gray-900 mb-4">
+                  {result.passed ? '🎉 مبروك! لقد نجحت' : '💪 حاول مرة أخرى'}
+                </h2>
+                
+                <div className="text-6xl font-bold mb-4" style={{ color: result.passed ? '#16a34a' : '#ea580c' }}>
+                  {result.score}%
                 </div>
+                
+                <p className="text-xl text-gray-700 mb-6">
+                  {result.correctCount} من {result.totalQuestions} إجابة صحيحة
+                </p>
 
-                <div className="space-y-4">
-                  <h3 className="text-xl font-bold">مراجعة الإجابات</h3>
-                  {questions.map((q, index) => {
-                    const userAnswer = answers[q.id];
+                <div className="space-y-4 mt-8">
+                  {quiz.questions.map((q, index) => {
+                    const userAnswer = answers[index];
                     const isCorrect = userAnswer === q.correct_answer;
+                    
                     return (
-                      <Card key={q.id} className={`border-2 ${
-                        isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
-                      }`}>
-                        <CardContent className="pt-6">
+                      <Card key={index} className={`border-2 ${isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+                        <CardContent className="pt-4">
                           <div className="flex items-start gap-3 mb-3">
                             {isCorrect ? (
-                              <CheckCircle className="w-6 h-6 text-green-600 mt-1" />
+                              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                             ) : (
-                              <XCircle className="w-6 h-6 text-red-600 mt-1" />
+                              <XCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                             )}
                             <div className="flex-1">
-                              <p className="font-semibold mb-2">
-                                {index + 1}. {q.question_text}
-                              </p>
-                              <p className="text-sm mb-1">
-                                <span className="font-semibold">إجابتك:</span> {userAnswer || "لم تجب"}
-                              </p>
-                              {!isCorrect && (
-                                <p className="text-sm text-green-700 mb-2">
-                                  <span className="font-semibold">الإجابة الصحيحة:</span> {q.correct_answer}
+                              <p className="font-semibold text-gray-900 mb-2">{q.question}</p>
+                              <div className="space-y-2 text-sm">
+                                <p className="text-gray-700">
+                                  ✅ الإجابة الصحيحة: <span className="font-bold text-green-700">{q.options[q.correct_answer]}</span>
                                 </p>
-                              )}
-                              {q.explanation && (
-                                <p className="text-sm text-gray-600 mt-2 bg-white/50 p-2 rounded">
-                                  💡 {q.explanation}
-                                </p>
-                              )}
+                                {!isCorrect && userAnswer !== undefined && userAnswer !== -1 && (
+                                  <p className="text-gray-700">
+                                    ❌ إجابتك: <span className="font-bold text-red-700">{q.options[userAnswer]}</span>
+                                  </p>
+                                )}
+                                {q.explanation && (
+                                  <p className="text-gray-600 bg-white p-2 rounded-lg">
+                                    💡 {q.explanation}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </CardContent>
@@ -251,21 +188,12 @@ export default function TakeQuiz() {
                   })}
                 </div>
 
-                <div className="flex gap-4">
-                  <Button
-                    onClick={() => navigate(createPageUrl("Quizzes"))}
-                    variant="outline"
-                    className="flex-1"
-                  >
-                    العودة للاختبارات
-                  </Button>
-                  <Button
-                    onClick={() => window.location.reload()}
-                    className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500"
-                  >
-                    إعادة المحاولة
-                  </Button>
-                </div>
+                <Button
+                  onClick={() => navigate(createPageUrl("Recordings"))}
+                  className="mt-8 bg-gradient-to-r from-purple-500 to-pink-500"
+                >
+                  العودة للتسجيلات
+                </Button>
               </CardContent>
             </Card>
           </motion.div>
@@ -274,112 +202,97 @@ export default function TakeQuiz() {
     );
   }
 
-  const question = questions[currentQuestion];
-  const progress = ((currentQuestion + 1) / questions.length) * 100;
-
   return (
     <div className="min-h-screen p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold">{quiz.title}</h1>
-            {timeLeft !== null && (
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-                timeLeft < 60 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-              }`}>
-                <Clock className="w-5 h-5" />
-                <span className="font-bold text-lg">{formatTime(timeLeft)}</span>
+      <div className="max-w-3xl mx-auto">
+        <Card className="border-2 border-purple-100 mb-6">
+          <CardHeader>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <CardTitle className="text-2xl mb-2">{quiz.title}</CardTitle>
+                {quiz.description && (
+                  <p className="text-gray-600 text-sm">{quiz.description}</p>
+                )}
               </div>
-            )}
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>السؤال {currentQuestion + 1} من {questions.length}</span>
-              <span>{Math.round(progress)}%</span>
+              <div className="flex gap-2 flex-wrap">
+                <Badge className="bg-purple-100 text-purple-700">
+                  {quiz.questions.length} سؤال
+                </Badge>
+                <Badge className="bg-green-100 text-green-700">
+                  نسبة النجاح: {quiz.passing_score}%
+                </Badge>
+              </div>
             </div>
-            <Progress value={progress} className="h-2" />
-          </div>
+          </CardHeader>
+        </Card>
+
+        <div className="space-y-6">
+          {quiz.questions.map((q, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+            >
+              <Card className="border-2 border-purple-100">
+                <CardHeader>
+                  <CardTitle className="text-lg">
+                    <span className="text-purple-600 ml-2">س{index + 1}.</span>
+                    {q.question}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {q.options.map((option, oIndex) => (
+                    <button
+                      key={oIndex}
+                      onClick={() => setAnswers({ ...answers, [index]: oIndex })}
+                      className={`w-full text-right p-4 rounded-xl border-2 transition-all ${
+                        answers[index] === oIndex
+                          ? 'border-purple-500 bg-purple-50'
+                          : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                          answers[index] === oIndex
+                            ? 'border-purple-500 bg-purple-500'
+                            : 'border-gray-300'
+                        }`}>
+                          {answers[index] === oIndex && (
+                            <div className="w-2 h-2 bg-white rounded-full" />
+                          )}
+                        </div>
+                        <span className="text-base">{option}</span>
+                      </div>
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentQuestion}
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
+        <div className="mt-8 flex flex-col md:flex-row gap-4">
+          <Button
+            onClick={handleSubmit}
+            className="w-full md:flex-1 h-14 text-lg bg-gradient-to-r from-purple-500 to-pink-500 gap-2"
+            disabled={submitAttemptMutation.isPending}
           >
-            <Card className="border-2 border-purple-100">
-              <CardHeader>
-                <CardTitle className="text-xl">{question.question_text}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <RadioGroup
-                  value={answers[question.id] || ""}
-                  onValueChange={(value) => handleAnswerChange(question.id, value)}
-                >
-                  {question.options?.map((option, index) => (
-                    <div
-                      key={index}
-                      className={`flex items-center space-x-2 space-x-reverse p-4 rounded-lg border-2 transition-all cursor-pointer hover:bg-purple-50 ${
-                        answers[question.id] === option
-                          ? 'border-purple-500 bg-purple-50'
-                          : 'border-gray-200'
-                      }`}
-                      onClick={() => handleAnswerChange(question.id, option)}
-                    >
-                      <RadioGroupItem value={option} id={`option-${index}`} />
-                      <Label
-                        htmlFor={`option-${index}`}
-                        className="flex-1 cursor-pointer text-base"
-                      >
-                        {option}
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-
-                <div className="flex gap-4 pt-4">
-                  {currentQuestion > 0 && (
-                    <Button
-                      onClick={() => setCurrentQuestion(currentQuestion - 1)}
-                      variant="outline"
-                      className="flex-1"
-                    >
-                      السابق
-                    </Button>
-                  )}
-                  
-                  {currentQuestion < questions.length - 1 ? (
-                    <Button
-                      onClick={() => setCurrentQuestion(currentQuestion + 1)}
-                      className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500"
-                    >
-                      التالي
-                      <ArrowRight className="w-4 h-4 mr-2" />
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={handleSubmit}
-                      className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500"
-                      disabled={Object.keys(answers).length < questions.length}
-                    >
-                      إنهاء الاختبار
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                    </Button>
-                  )}
-                </div>
-
-                {currentQuestion === questions.length - 1 && Object.keys(answers).length < questions.length && (
-                  <Alert className="bg-yellow-50 border-yellow-200">
-                    <AlertDescription className="text-yellow-800">
-                      ⚠️ يرجى الإجابة على جميع الأسئلة قبل الإنهاء
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        </AnimatePresence>
+            {submitAttemptMutation.isPending ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <CheckCircle className="w-5 h-5" />
+            )}
+            تسليم الاختبار
+          </Button>
+          
+          <div className="bg-purple-50 rounded-xl p-4 border-2 border-purple-100 md:w-64 text-center">
+            <p className="text-sm text-gray-600 mb-1">الأسئلة المُجاب عليها</p>
+            <p className="text-2xl font-bold text-purple-900">
+              {Object.keys(answers).length} / {quiz.questions.length}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

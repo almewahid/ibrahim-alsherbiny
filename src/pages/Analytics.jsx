@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
@@ -50,7 +49,22 @@ export default function Analytics() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['analyticsUsers'],
-    queryFn: () => base44.asServiceRole.entities.User.list(),
+    queryFn: () => base44.entities.User.list(),
+  });
+
+  const { data: listeners = [] } = useQuery({
+    queryKey: ['analyticsListeners'],
+    queryFn: () => base44.entities.Listener.list("-created_date", 100),
+  });
+
+  const { data: comments = [] } = useQuery({
+    queryKey: ['analyticsComments'],
+    queryFn: () => base44.entities.Comment.list("-created_date", 100),
+  });
+
+  const { data: chatMessages = [] } = useQuery({
+    queryKey: ['analyticsChatMessages'],
+    queryFn: () => base44.entities.ChatMessage.list("-created_date", 100),
   });
 
   // Calculate statistics
@@ -144,6 +158,42 @@ export default function Analytics() {
       .sort((a, b) => b.totalListeners - a.totalListeners)
       .slice(0, 5);
   }, [broadcasts]);
+
+  // Top listeners (most engaged users)
+  const topListeners = useMemo(() => {
+    const userEngagement = {};
+    
+    listeners.forEach(l => {
+      if (!userEngagement[l.user_id]) {
+        userEngagement[l.user_id] = {
+          name: l.user_name,
+          sessions: 0,
+          totalTime: 0
+        };
+      }
+      userEngagement[l.user_id].sessions += 1;
+    });
+
+    comments.forEach(c => {
+      if (userEngagement[c.user_id]) {
+        userEngagement[c.user_id].comments = (userEngagement[c.user_id].comments || 0) + 1;
+      }
+    });
+
+    chatMessages.forEach(m => {
+      if (userEngagement[m.user_id]) {
+        userEngagement[m.user_id].messages = (userEngagement[m.user_id].messages || 0) + 1;
+      }
+    });
+
+    return Object.values(userEngagement)
+      .map(u => ({
+        ...u,
+        engagement: (u.sessions * 2) + ((u.comments || 0) * 3) + ((u.messages || 0) * 1)
+      }))
+      .sort((a, b) => b.engagement - a.engagement)
+      .slice(0, 10);
+  }, [listeners, comments, chatMessages]);
 
   const categoryColors = {
     "علوم شرعية": "bg-purple-100 text-purple-800",
@@ -391,6 +441,38 @@ export default function Analytics() {
                       </div>
                       <Badge className="bg-purple-100 text-purple-700">
                         {broadcaster.totalListeners}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Top Listeners */}
+            <Card className="border-2 border-blue-100 lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Award className="w-5 h-5 text-blue-600" />
+                  أكثر المستمعين تفاعلاً
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {topListeners.map((listener, index) => (
+                    <div key={index} className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border border-blue-200">
+                      <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center text-white font-bold">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-900 truncate">{listener.name}</p>
+                        <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
+                          <span>🎧 {listener.sessions} جلسة</span>
+                          {listener.comments > 0 && <span>💬 {listener.comments} تعليق</span>}
+                          {listener.messages > 0 && <span>💭 {listener.messages} رسالة</span>}
+                        </div>
+                      </div>
+                      <Badge className="bg-blue-100 text-blue-700 flex-shrink-0">
+                        {listener.engagement} نقطة
                       </Badge>
                     </div>
                   ))}
