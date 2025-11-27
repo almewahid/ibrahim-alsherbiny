@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 import {
@@ -25,11 +26,18 @@ import { getStorage } from "firebase/storage";
    نستخدم متغيرات البيئة (Environment Variables)
    لكي يعمل مع Vite + Vercel بدون أي تسريب للمفاتيح
 --------------------------------------------------------- */
+=======
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+
+>>>>>>> 4f7006af0bbdca6242ed7f0eafca44864855a2d2
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+<<<<<<< HEAD
   messagingSenderId: import.meta.env.VITE_FIREBASE_MSG_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
@@ -89,3 +97,14 @@ export async function ensureUserDoc(user) {
 }
 
 export { serverTimestamp };
+=======
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+
+export default app;
+>>>>>>> 4f7006af0bbdca6242ed7f0eafca44864855a2d2
