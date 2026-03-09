@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Link2, Plus, Trash2, ExternalLink, Loader2, Search, Clock, Edit } from "lucide-react";
+import { Link2, Plus, Trash2, ExternalLink, Loader2, Search } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -27,13 +27,6 @@ const CONTENT_TYPES = {
   series: { label: "سلسلة", icon: "📚" }
 };
 
-const formatTime = (seconds) => {
-  if (!seconds) return null;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-
 export default function ContentLinker({ 
   sourceType, 
   sourceId, 
@@ -47,11 +40,7 @@ export default function ContentLinker({
   const [selectedTargetType, setSelectedTargetType] = useState("recording");
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [linkType, setLinkType] = useState("related");
-  const [customLabel, setCustomLabel] = useState("");
   const [description, setDescription] = useState("");
-  const [timestampMinutes, setTimestampMinutes] = useState("");
-  const [timestampSeconds, setTimestampSeconds] = useState("");
-  const [timestampLabel, setTimestampLabel] = useState("");
 
   // Fetch existing links
   const { data: links = [] } = useQuery({
@@ -90,8 +79,10 @@ export default function ContentLinker({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contentLinks', sourceId] });
-      resetForm();
       setShowAddDialog(false);
+      setSearchQuery("");
+      setSelectedTarget(null);
+      setDescription("");
       alert('✅ تم إضافة الرابط بنجاح');
     },
   });
@@ -104,24 +95,11 @@ export default function ContentLinker({
     },
   });
 
-  const resetForm = () => {
-    setSearchQuery("");
-    setSelectedTarget(null);
-    setCustomLabel("");
-    setDescription("");
-    setTimestampMinutes("");
-    setTimestampSeconds("");
-    setTimestampLabel("");
-    setLinkType("related");
-  };
-
   const handleAddLink = () => {
     if (!selectedTarget) {
       alert('يرجى اختيار محتوى للربط');
       return;
     }
-
-    const totalSeconds = (parseInt(timestampMinutes) || 0) * 60 + (parseInt(timestampSeconds) || 0);
 
     createLinkMutation.mutate({
       source_type: sourceType,
@@ -131,23 +109,18 @@ export default function ContentLinker({
       target_id: selectedTarget.id,
       target_title: selectedTarget.title,
       link_type: linkType,
-      custom_label: customLabel || undefined,
-      description: description || undefined,
-      timestamp_seconds: totalSeconds > 0 ? totalSeconds : undefined,
-      timestamp_label: timestampLabel || undefined
+      description: description
     });
   };
 
   const navigateToContent = (link) => {
     let url = '';
-    const timestamp = link.timestamp_seconds ? `&t=${link.timestamp_seconds}` : '';
-    
     if (link.target_type === 'broadcast') {
-      url = createPageUrl(`ListenBroadcast?id=${link.target_id}${timestamp}`);
+      url = createPageUrl(`ListenBroadcast?id=${link.target_id}`);
     } else if (link.target_type === 'recording') {
-      url = createPageUrl(`RecordingDetails?id=${link.target_id}${timestamp}`);
+      url = createPageUrl(`Recordings`);
     } else if (link.target_type === 'hadith') {
-      url = createPageUrl(`AdminPanel`);
+      url = createPageUrl(`AdminPanel`); // Or hadith viewer page
     } else if (link.target_type === 'series') {
       url = createPageUrl(`SeriesPublic`);
     }
@@ -187,27 +160,16 @@ export default function ContentLinker({
                 className="flex items-start justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-100 hover:shadow-md transition-shadow"
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <div className="flex items-center gap-2 mb-2">
                     <span className="text-2xl">{CONTENT_TYPES[link.target_type].icon}</span>
                     <Badge className={LINK_TYPES[link.link_type].color}>
-                      {link.custom_label || LINK_TYPES[link.link_type].label}
+                      {LINK_TYPES[link.link_type].label}
                     </Badge>
-                    {link.timestamp_seconds > 0 && (
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 gap-1">
-                        <Clock className="w-3 h-3" />
-                        {formatTime(link.timestamp_seconds)}
-                      </Badge>
-                    )}
                   </div>
                   <h4 className="font-bold text-gray-900 mb-1">{link.target_title}</h4>
                   <p className="text-sm text-gray-600">
                     {CONTENT_TYPES[link.target_type].label}
                   </p>
-                  {link.timestamp_label && (
-                    <p className="text-sm text-blue-600 mt-1">
-                      📍 {link.timestamp_label}
-                    </p>
-                  )}
                   {link.description && (
                     <p className="text-sm text-gray-500 mt-1 italic">{link.description}</p>
                   )}
@@ -244,11 +206,8 @@ export default function ContentLinker({
       </CardContent>
 
       {/* Add Link Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={(open) => {
-        setShowAddDialog(open);
-        if (!open) resetForm();
-      }}>
-        <DialogContent dir="rtl" className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent dir="rtl" className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>إضافة رابط لمحتوى ذي صلة</DialogTitle>
           </DialogHeader>
@@ -305,9 +264,6 @@ export default function ContentLinker({
                     {item.broadcaster_name && (
                       <p className="text-sm text-gray-600">👨‍🏫 {item.broadcaster_name}</p>
                     )}
-                    {item.duration_seconds > 0 && (
-                      <p className="text-sm text-blue-600">⏱️ {formatTime(item.duration_seconds)}</p>
-                    )}
                   </div>
                 ))}
               </div>
@@ -332,56 +288,6 @@ export default function ContentLinker({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>تسمية مخصصة (اختياري)</Label>
-                  <Input
-                    value={customLabel}
-                    onChange={(e) => setCustomLabel(e.target.value)}
-                    placeholder="مثال: شرح الآية الثالثة"
-                  />
-                </div>
-
-                {/* Timestamp Input */}
-                <div className="space-y-2 bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
-                  <Label className="flex items-center gap-2 text-blue-900">
-                    <Clock className="w-4 h-4" />
-                    الربط بنقطة زمنية محددة (اختياري)
-                  </Label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-sm">الدقائق</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={timestampMinutes}
-                        onChange={(e) => setTimestampMinutes(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-sm">الثواني</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="59"
-                        value={timestampSeconds}
-                        onChange={(e) => setTimestampSeconds(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                  <Input
-                    value={timestampLabel}
-                    onChange={(e) => setTimestampLabel(e.target.value)}
-                    placeholder="وصف النقطة الزمنية (مثال: بداية شرح الآية)"
-                  />
-                  {(timestampMinutes || timestampSeconds) && (
-                    <p className="text-sm text-blue-600">
-                      ⏱️ سيتم فتح المحتوى عند: {formatTime((parseInt(timestampMinutes) || 0) * 60 + (parseInt(timestampSeconds) || 0))}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
                   <Label>وصف العلاقة (اختياري)</Label>
                   <Input
                     value={description}
@@ -394,10 +300,7 @@ export default function ContentLinker({
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowAddDialog(false);
-              resetForm();
-            }}>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
               إلغاء
             </Button>
             <Button

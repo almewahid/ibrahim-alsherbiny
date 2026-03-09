@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Send, Database, Shield, Radio, Users, Settings, VolumeX, Volume2, StopCircle, Edit, Trash2, TrendingUp, Eye, Clock, BarChart3 } from "lucide-react";
+import { Loader2, Send, Database, Shield, Radio, Users, Settings, VolumeX, Volume2, StopCircle, Edit, Trash2, TrendingUp, Eye, Clock, BarChart3, ExternalLink, Headphones } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -673,6 +673,15 @@ export default function AdminPanel() {
                                 >
                                   <Settings className="w-4 h-4" />
                                   إدارة البث
+                                </Button>
+                                <Button
+                                  onClick={() => window.open(createPageUrl(`ListenBroadcast?id=${broadcast.id}`), '_blank')}
+                                  variant="outline"
+                                  className="gap-2 border-2 border-blue-200 text-blue-600 hover:bg-blue-50"
+                                >
+                                  <Headphones className="w-4 h-4" />
+                                  غرفة الاستماع
+                                  <ExternalLink className="w-3 h-3" />
                                 </Button>
                                 <Button
                                   onClick={() => muteBroadcast(broadcast)}

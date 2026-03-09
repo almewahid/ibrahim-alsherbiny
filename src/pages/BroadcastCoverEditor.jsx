@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, Eye, Sparkles, Upload, FileText, CheckCircle } from "lucide-react";
+import { Loader2, Save, Eye, Sparkles, Upload, FileText, CheckCircle, Youtube, Image, Link } from "lucide-react";
 import { motion } from "framer-motion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -41,8 +40,10 @@ export default function BroadcastCoverEditor() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const broadcastIdFromUrl = urlParams.get('broadcast_id');
+  const coverIdFromUrl = urlParams.get('cover_id');
   
   const [broadcastId, setBroadcastId] = useState(broadcastIdFromUrl || "");
+  const [existingCoverId, setExistingCoverId] = useState(coverIdFromUrl || null);
   const [coverData, setCoverData] = useState({
     template_type: "تفسير",
     fixed_title: "التفسير الموضوعي الميسر",
@@ -58,10 +59,51 @@ export default function BroadcastCoverEditor() {
     pdf_url: "",
     design_variant: 1,
     morning_adhkar: "",
-    previous_summary: ""
+    previous_summary: "",
+    youtube_url: "",
+    summary_image_url: "",
+    summary_pdf_url: ""
   });
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [isUploadingSummaryFile, setIsUploadingSummaryFile] = useState(false);
+
+  // تحميل غلاف موجود للتعديل
+  useEffect(() => {
+    if (!existingCoverId) return;
+    const load = async () => {
+      try {
+        const covers = await base44.entities.BroadcastCover.filter({ id: existingCoverId });
+        if (covers.length > 0) {
+          const c = covers[0];
+          setBroadcastId(c.broadcast_id || "");
+          setCoverData({
+            template_type: c.template_type || "تفسير",
+            fixed_title: c.fixed_title || "التفسير الموضوعي الميسر",
+            lecturer_name: c.lecturer_name || "د.إبراهيم الشربيني",
+            surah_name: c.surah_name || "البقرة",
+            surah_number: c.surah_number || 2,
+            verse_from: c.verse_from || 1,
+            verse_to: c.verse_to || 1,
+            verses_text: c.verses_text || [],
+            hadith_number: c.hadith_number || null,
+            hadith_text: c.hadith_text || "",
+            custom_image_url: c.custom_image_url || "",
+            pdf_url: c.pdf_url || "",
+            design_variant: c.design_variant || 1,
+            morning_adhkar: c.morning_adhkar || "",
+            previous_summary: c.previous_summary || "",
+            youtube_url: c.youtube_url || "",
+            summary_image_url: c.summary_image_url || "",
+            summary_pdf_url: c.summary_pdf_url || ""
+          });
+        }
+      } catch (err) {
+        console.error("Error loading cover:", err);
+      }
+    };
+    load();
+  }, [existingCoverId]);
 
   const { data: verses = [] } = useQuery({
     queryKey: ['verses', coverData.surah_number],
@@ -127,9 +169,12 @@ export default function BroadcastCoverEditor() {
   }, [coverData.hadith_number, hadiths, coverData.template_type]);
 
   const saveCoverMutation = useMutation({
-    mutationFn: (data) => base44.entities.BroadcastCover.create(data),
-    onSuccess: () => {
+    mutationFn: (data) => existingCoverId
+      ? base44.entities.BroadcastCover.update(existingCoverId, data)
+      : base44.entities.BroadcastCover.create(data),
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['broadcastCovers'] });
+      if (!existingCoverId && result?.id) setExistingCoverId(result.id);
       alert('✅ تم حفظ الغلاف بنجاح!');
     },
   });
@@ -165,6 +210,10 @@ export default function BroadcastCoverEditor() {
         setCoverData(prev => ({ ...prev, custom_image_url: result.file_url }));
       } else if (type === 'pdf') {
         setCoverData(prev => ({ ...prev, pdf_url: result.file_url }));
+      } else if (type === 'summary_image') {
+        setCoverData(prev => ({ ...prev, summary_image_url: result.file_url }));
+      } else if (type === 'summary_pdf') {
+        setCoverData(prev => ({ ...prev, summary_pdf_url: result.file_url }));
       }
       
       alert('✅ تم رفع الملف بنجاح');
@@ -198,8 +247,8 @@ export default function BroadcastCoverEditor() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">تصميم غلاف الدرس</h1>
-          <p className="text-lg text-gray-600">قم بتخصيص غلاف البث الخاص بك</p>
+          <h1 className="text-4xl font-bold text-gray-900 mb-3">{existingCoverId ? "تعديل غلاف الدرس" : "تصميم غلاف الدرس"}</h1>
+          <p className="text-lg text-gray-600">{existingCoverId ? "عدّل بيانات الغلاف الحالي" : "قم بتخصيص غلاف البث الخاص بك"}</p>
         </motion.div>
 
         <div className="grid lg:grid-cols-2 gap-8">
@@ -422,9 +471,9 @@ export default function BroadcastCoverEditor() {
                 </p>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-4 border-2 border-purple-100 rounded-xl p-4">
                 <div className="flex items-center justify-between">
-                  <Label>ملخص الدرس السابق (يظهر في صفحة الانتظار)</Label>
+                  <Label className="text-base font-bold">ملخص الدرس السابق</Label>
                   <Button
                     onClick={generateSummary}
                     variant="outline"
@@ -437,18 +486,80 @@ export default function BroadcastCoverEditor() {
                     ) : (
                       <Sparkles className="w-4 h-4" />
                     )}
-                    توليد بالذكاء الاصطناعي
+                    توليد AI
                   </Button>
                 </div>
-                <Textarea
-                  value={coverData.previous_summary}
-                  onChange={(e) => setCoverData({ ...coverData, previous_summary: e.target.value })}
-                  placeholder="ملخص سريع للدرس السابق يساعد المستمعين على التذكر والربط..."
-                  className="min-h-32"
-                />
-                <p className="text-xs text-gray-500">
-                  💡 يمكنك كتابة ملخص يدوي أو استخدام الذكاء الاصطناعي لتوليده تلقائياً
-                </p>
+
+                {/* Text summary */}
+                <div className="space-y-1">
+                  <Label className="text-sm text-gray-600">نص الملخص</Label>
+                  <Textarea
+                    value={coverData.previous_summary}
+                    onChange={(e) => setCoverData({ ...coverData, previous_summary: e.target.value })}
+                    placeholder="ملخص سريع للدرس السابق يساعد المستمعين على التذكر والربط..."
+                    className="min-h-24"
+                  />
+                </div>
+
+                {/* YouTube link */}
+                <div className="space-y-1">
+                  <Label className="text-sm text-gray-600 flex items-center gap-1">
+                    <Youtube className="w-4 h-4 text-red-500" />
+                    رابط تسجيل الدرس على يوتيوب
+                  </Label>
+                  <Input
+                    value={coverData.youtube_url}
+                    onChange={(e) => setCoverData({ ...coverData, youtube_url: e.target.value })}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    dir="ltr"
+                    className="text-sm"
+                  />
+                </div>
+
+                {/* Summary image */}
+                <div className="space-y-1">
+                  <Label className="text-sm text-gray-600 flex items-center gap-1">
+                    <Image className="w-4 h-4 text-blue-500" />
+                    صورة توضيحية للملخص
+                  </Label>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e, 'summary_image')}
+                      disabled={isUploadingFile}
+                      className="text-sm"
+                    />
+                    {coverData.summary_image_url && (
+                      <span className="text-green-600 text-xs font-semibold whitespace-nowrap">✓ تم الرفع</span>
+                    )}
+                  </div>
+                  {coverData.summary_image_url && (
+                    <img src={coverData.summary_image_url} alt="ملخص" className="w-full h-32 object-cover rounded-lg mt-1" />
+                  )}
+                </div>
+
+                {/* Summary PDF */}
+                <div className="space-y-1">
+                  <Label className="text-sm text-gray-600 flex items-center gap-1">
+                    <FileText className="w-4 h-4 text-orange-500" />
+                    ملف PDF للملخص
+                  </Label>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      type="file"
+                      accept=".pdf"
+                      onChange={(e) => handleFileUpload(e, 'summary_pdf')}
+                      disabled={isUploadingFile}
+                      className="text-sm"
+                    />
+                    {coverData.summary_pdf_url && (
+                      <a href={coverData.summary_pdf_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs underline whitespace-nowrap">
+                        ✓ عرض PDF
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <Button
@@ -519,9 +630,11 @@ export default function BroadcastCoverEditor() {
                   )}
 
                   {coverData.custom_image_url && (
-                    <div className="text-center">
-                      <p className="text-lg">✅ تم رفع صورة مخصصة</p>
-                    </div>
+                    <img
+                      src={coverData.custom_image_url}
+                      alt="صورة مخصصة"
+                      className="absolute inset-0 w-full h-full object-cover z-20 rounded-2xl"
+                    />
                   )}
 
                   {!coverData.verses_text?.length && !coverData.hadith_text && !coverData.custom_image_url && (

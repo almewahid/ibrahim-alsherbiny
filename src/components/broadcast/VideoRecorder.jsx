@@ -1,17 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Video, Square, Loader2, CheckCircle, MonitorUp } from "lucide-react";
+import { Square, Loader2, CheckCircle, MonitorUp } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// مسجّل مشاركة الشاشة فقط (تم إزالة تسجيل الكاميرا)
 export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart = false }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [recordingType, setRecordingType] = useState("camera"); // "camera" or "screen"
   const [useCloudflareR2, setUseCloudflareR2] = useState(false);
-  const [deviceId, setDeviceId] = useState("");
-  const [devices, setDevices] = useState([]);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const startTimeRef = useRef(null);
@@ -26,39 +23,19 @@ export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart =
           setUseCloudflareR2(true);
         }
       } catch (error) {
-        console.log('Cloudflare R2 not configured, using Base44 storage');
         setUseCloudflareR2(false);
       }
     };
     checkR2Config();
-
-    // Get available video devices
-    navigator.mediaDevices.enumerateDevices().then(deviceInfos => {
-      const videoDevices = deviceInfos.filter(device => device.kind === 'videoinput');
-      setDevices(videoDevices);
-      if (videoDevices.length > 0) {
-        setDeviceId(videoDevices[0].deviceId);
-      }
-    });
   }, []);
 
   const startRecording = async () => {
     try {
-      let stream;
-      
-      if (recordingType === "screen") {
-        // Screen recording with audio
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { cursor: "always" },
-          audio: true
-        });
-      } else {
-        // Camera recording
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId: { exact: deviceId } } : true,
-          audio: true
-        });
-      }
+      // مشاركة الشاشة فقط مع الصوت
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: "always" },
+        audio: true
+      });
 
       streamRef.current = stream;
       
@@ -94,8 +71,8 @@ export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart =
       startTimeRef.current = Date.now();
       setIsRecording(true);
     } catch (error) {
-      console.error("Error starting video recording:", error);
-      alert("فشل بدء تسجيل الفيديو. تأكد من السماح بالوصول للكاميرا/الشاشة.");
+      console.error("Error starting screen recording:", error);
+      alert("فشل بدء تسجيل الشاشة. تأكد من السماح بمشاركة الشاشة.");
     }
   };
 
@@ -153,23 +130,29 @@ export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart =
 
       await base44.entities.Recording.create({
         broadcast_id: broadcastId,
-        title: `${broadcastTitle} - فيديو`,
+        title: `${broadcastTitle} - تسجيل الشاشة`,
         broadcaster_name: user.full_name || user.email,
         broadcaster_id: user.id,
         file_uri: fileUri,
         file_url: fileUrl || undefined,
         duration_seconds: duration,
         file_size_mb: parseFloat(fileSize),
+        has_video: true,
         recorded_at: new Date().toISOString()
       });
 
+      // تحميل محلي تلقائي
+      const localUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = localUrl;
+      a.download = `${broadcastTitle}-screen-${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(localUrl);
+
       setIsProcessing(false);
-      
-      const storageMessage = useCloudflareR2 && fileUrl 
-        ? '✅ تم حفظ الفيديو على Cloudflare R2 بنجاح!'
-        : '✅ تم حفظ الفيديو بنجاح!';
-      
-      alert(storageMessage);
+      alert('✅ تم حفظ التسجيل على الموقع وتحميله على جهازك!');
     } catch (error) {
       console.error("Error saving video recording:", error);
       setIsProcessing(false);
@@ -181,54 +164,9 @@ export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart =
     <div className="space-y-4">
       <div className="bg-white border-2 border-purple-100 rounded-xl p-4">
         <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <Video className="w-5 h-5 text-purple-600" />
-          تسجيل الفيديو
+          <MonitorUp className="w-5 h-5 text-purple-600" />
+          تسجيل مشاركة الشاشة
         </h3>
-
-        {!isRecording && (
-          <div className="space-y-3 mb-4">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-gray-700">نوع التسجيل</label>
-              <Select value={recordingType} onValueChange={setRecordingType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="camera">
-                    <div className="flex items-center gap-2">
-                      <Video className="w-4 h-4" />
-                      كاميرا
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="screen">
-                    <div className="flex items-center gap-2">
-                      <MonitorUp className="w-4 h-4" />
-                      مشاركة الشاشة
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {recordingType === "camera" && devices.length > 0 && (
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">الكاميرا</label>
-                <Select value={deviceId} onValueChange={setDeviceId}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {devices.map(device => (
-                      <SelectItem key={device.deviceId} value={device.deviceId}>
-                        {device.label || `كاميرا ${devices.indexOf(device) + 1}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-        )}
 
         {(isRecording || isProcessing) && (
           <div className="mb-4">
@@ -250,8 +188,8 @@ export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart =
               className="gap-2 border-2 border-red-500 text-red-600 hover:bg-red-50"
               disabled={isProcessing}
             >
-              {recordingType === "screen" ? <MonitorUp className="w-4 h-4" /> : <Video className="w-4 h-4 fill-current" />}
-              بدء التسجيل
+              <MonitorUp className="w-4 h-4" />
+              بدء تسجيل الشاشة
             </Button>
           ) : (
             <Button
@@ -282,8 +220,8 @@ export default function VideoRecorder({ broadcastId, broadcastTitle, autoStart =
         <Alert className="bg-blue-50 border-blue-200 mt-4">
           <CheckCircle className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-blue-900 text-sm">
-            💡 يتم حفظ الفيديو تلقائياً
-            {useCloudflareR2 && " على Cloudflare R2 ☁️"}
+            💡 سيتم حفظ التسجيل على الموقع وتحميله تلقائياً على جهازك عند الانتهاء
+            {useCloudflareR2 && " ☁️ (Cloudflare R2)"}
           </AlertDescription>
         </Alert>
       </div>

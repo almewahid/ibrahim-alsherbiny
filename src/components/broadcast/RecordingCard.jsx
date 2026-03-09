@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { Play, Pause, SkipBack, SkipForward, Download, Edit, Trash2, Eye, Video, Clock, HardDrive, Users, Sparkles, BarChart3, Copy, Share2, Loader2, Bookmark } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Download, Edit, Trash2, Eye, Video, Clock, HardDrive, Users, Sparkles, BarChart3, Copy, Share2, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
@@ -50,9 +50,7 @@ export default function RecordingCard({
   categorizingRecording,
   generatingSummary,
   user,
-  categoryColors,
-  handleSuggestMarkers,
-  suggestingMarkers
+  categoryColors
 }) {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
@@ -175,7 +173,11 @@ export default function RecordingCard({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs w-full">
             <div className="bg-blue-50 rounded-lg p-2 text-center">
               <Clock className="w-4 h-4 text-blue-600 mx-auto mb-1" />
-              <p className="text-blue-900 font-bold">{Math.floor((recording.duration_seconds || 0) / 60)} د</p>
+              <p className="text-blue-900 font-bold">
+                {(recording.duration_seconds || 0) < 60
+                  ? `${recording.duration_seconds || 0} ث`
+                  : `${Math.floor((recording.duration_seconds || 0) / 60)} د`}
+              </p>
             </div>
             <div className="bg-green-50 rounded-lg p-2 text-center">
               <Eye className="w-4 h-4 text-green-600 mx-auto mb-1" />
@@ -318,26 +320,6 @@ export default function RecordingCard({
                     <>
                       <Sparkles className="w-3 h-3" />
                       تصنيف AI
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={() => handleSuggestMarkers && handleSuggestMarkers(recording)}
-                  variant="outline"
-                  size="sm"
-                  className="border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 gap-1 text-xs"
-                  disabled={suggestingMarkers === recording.id}
-                >
-                  {suggestingMarkers === recording.id ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      جارٍ...
-                    </>
-                  ) : (
-                    <>
-                      <Bookmark className="w-3 h-3" />
-                      علامات AI
                     </>
                   )}
                 </Button>

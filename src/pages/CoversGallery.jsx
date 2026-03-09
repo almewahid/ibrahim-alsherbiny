@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -78,7 +77,7 @@ export default function CoversGallery() {
   };
 
   const handleEdit = (cover) => {
-    navigate(createPageUrl(`BroadcastCoverEditor?broadcast_id=${cover.broadcast_id}`));
+    navigate(createPageUrl(`BroadcastCoverEditor?cover_id=${cover.id}`));
   };
 
   const copyBroadcastId = (broadcastId) => {
@@ -113,36 +112,35 @@ export default function CoversGallery() {
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8"
-        >
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl mb-4">
-            <Image className="w-8 h-8 text-white" />
+        {/* Search + Action Buttons */}
+        <div className="flex flex-col md:flex-row gap-3 mb-6">
+          <div className="flex-1">
+            <SearchBar
+              value={searchQuery}
+              onChange={(query) => {
+                setSearchQuery(query);
+                setCurrentPage(1);
+              }}
+              placeholder="ابحث عن الأغلفة حسب العنوان، المحاضر، أو السورة..."
+            />
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">الأغلفة المحفوظة</h1>
-          <p className="text-lg text-gray-600">
-            اعرض، عدّل، أو احذف الأغلفة المُنشأة
-          </p>
-          
-          <div className="mt-4 inline-block bg-purple-50 border-2 border-purple-200 rounded-xl px-4 py-2">
-            <p className="text-sm text-purple-700 font-bold">
-              📊 إجمالي الأغلفة: {covers.length}
-            </p>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              onClick={() => navigate(createPageUrl("BroadcastCoverEditor"))}
+              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 gap-2"
+            >
+              <Image className="w-4 h-4" />
+              إنشاء غلاف جديد
+            </Button>
+            <Button
+              onClick={() => navigate(createPageUrl("ScheduleBroadcast"))}
+              variant="outline"
+              className="border-blue-200 text-blue-600 hover:bg-blue-50 gap-2"
+            >
+              <Calendar className="w-4 h-4" />
+              جدولة بث
+            </Button>
           </div>
-        </motion.div>
-
-        {/* Search Bar */}
-        <div className="mb-8">
-          <SearchBar
-            value={searchQuery}
-            onChange={(query) => {
-              setSearchQuery(query);
-              setCurrentPage(1);
-            }}
-            placeholder="ابحث عن الأغلفة حسب العنوان، المحاضر، أو السورة..."
-          />
         </div>
 
         {isLoading ? (

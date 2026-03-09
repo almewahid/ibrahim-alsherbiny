@@ -21,14 +21,19 @@ const truncateVerseText = (verses, isHomePage = false) => {
   return [firstVerse];
 };
 
-export default function BroadcastCover({ broadcastId, className = "", isHomePage = false }) {
+export default function BroadcastCover({ broadcastId, className = "", isHomePage = false, preloadedCover = undefined }) {
   const { data: cover, isLoading } = useQuery({
     queryKey: ['broadcastCover', broadcastId],
     queryFn: async () => {
       const covers = await base44.entities.BroadcastCover.filter({ broadcast_id: broadcastId });
-      return covers[0];
+      return covers[0] || null;
     },
-    enabled: !!broadcastId && broadcastId !== "preview",
+    enabled: !!broadcastId && broadcastId !== "preview" && preloadedCover === undefined,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+    retryDelay: 3000,
+    initialData: preloadedCover !== undefined ? preloadedCover : undefined,
   });
 
   if (isLoading) {

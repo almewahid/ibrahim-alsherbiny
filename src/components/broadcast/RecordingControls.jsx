@@ -1,17 +1,26 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Circle, Square, Loader2, CheckCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Circle, Square, Loader2, CheckCircle, Download, FolderOpen } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 
 export default function RecordingControls({ broadcastId, broadcastTitle, audioStream, autoStart = false, coverId = null }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [useCloudflareR2, setUseCloudflareR2] = useState(false); // NEW
+  const [useCloudflareR2, setUseCloudflareR2] = useState(false);
+  const [saveFileName, setSaveFileName] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const startTimeRef = useRef(null);
+
+  // تحديث اسم الملف الافتراضي بناءً على عنوان البث
+  useEffect(() => {
+    if (broadcastTitle) {
+      const safeName = broadcastTitle.replace(/[^\u0600-\u06FFa-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "_");
+      setSaveFileName(safeName || `تسجيل_${Date.now()}`);
+    }
+  }, [broadcastTitle]);
 
   // Auto-start recording when broadcast begins
   useEffect(() => {
@@ -75,11 +84,29 @@ export default function RecordingControls({ broadcastId, broadcastTitle, audioSt
     }
   };
 
+  // حفظ نسخة محلية على الكمبيوتر
+  const saveLocalCopy = (blob) => {
+    const name = (saveFileName || `تسجيل_${Date.now()}`).replace(/\.webm$/, "") + ".webm";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
+  };
+
   const saveRecording = async () => {
     try {
       const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
       const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
       const fileSize = (blob.size / (1024 * 1024)).toFixed(2);
+
+      // 1. حفظ نسخة محلية على الكمبيوتر أولاً
+      saveLocalCopy(blob);
 
       const file = new File([blob], `recording-${Date.now()}.webm`, { type: 'audio/webm' });
 
@@ -135,12 +162,7 @@ export default function RecordingControls({ broadcastId, broadcastTitle, audioSt
       });
 
       setIsProcessing(false);
-      
-      const storageMessage = useCloudflareR2 && fileUrl 
-        ? '✅ تم حفظ التسجيل على Cloudflare R2 بنجاح!'
-        : '✅ تم حفظ التسجيل بنجاح!';
-      
-      alert(storageMessage);
+      alert('✅ تم رفع التسجيل على الموقع وحفظ نسخة على جهازك!');
     } catch (error) {
       console.error("Error saving recording:", error);
       setIsProcessing(false);
@@ -150,6 +172,24 @@ export default function RecordingControls({ broadcastId, broadcastTitle, audioSt
 
   return (
     <div className="space-y-3">
+      {/* اسم ملف الحفظ المحلي */}
+      <div className="flex items-center gap-2">
+        <FolderOpen className="w-4 h-4 text-gray-500 shrink-0" />
+        <div className="flex-1">
+          <p className="text-xs text-gray-500 mb-1">اسم الملف المحفوظ على جهازك</p>
+          <div className="flex items-center gap-1">
+            <Input
+              value={saveFileName}
+              onChange={(e) => setSaveFileName(e.target.value)}
+              placeholder="اسم الملف..."
+              className="text-sm h-8"
+              disabled={isRecording || isProcessing}
+            />
+            <span className="text-xs text-gray-400 shrink-0">.webm</span>
+          </div>
+        </div>
+      </div>
+
       <div className="flex items-center gap-3">
         {!isRecording ? (
           <Button
@@ -182,16 +222,15 @@ export default function RecordingControls({ broadcastId, broadcastTitle, audioSt
         {isProcessing && (
           <div className="flex items-center gap-2 text-sm text-blue-600">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span>جارٍ الحفظ...</span>
+            <span>جارٍ الرفع والحفظ...</span>
           </div>
         )}
       </div>
 
       <Alert className="bg-blue-50 border-blue-200">
-        <CheckCircle className="h-4 w-4 text-blue-600" />
+        <Download className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-blue-900 text-sm">
-          💡 {autoStart ? "التسجيل يبدأ تلقائياً عند بدء البث" : "التسجيلات يتم حفظها تلقائياً"}
-          {useCloudflareR2 && " - يتم استخدام Cloudflare R2 للتخزين الاقتصادي ☁️"}
+          💡 عند الانتهاء: يُرفع التسجيل على الموقع ويُحفظ تلقائياً على جهازك
         </AlertDescription>
       </Alert>
     </div>

@@ -11,7 +11,6 @@ import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
 import BroadcastCard from "../components/broadcast/BroadcastCard";
 import SearchBar from "../components/broadcast/SearchBar";
-import BroadcastCover from "../components/broadcast/BroadcastCover";
 import { useNavigate } from "react-router-dom";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"; // Added import for Select components
 
@@ -39,15 +38,30 @@ export default function Home() {
   const { data: broadcasts = [], isLoading } = useQuery({
     queryKey: ['broadcasts'],
     queryFn: () => base44.entities.Broadcast.list("-created_date"),
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
 
-  // Fetch scheduled broadcasts
   const { data: scheduledBroadcasts = [] } = useQuery({
     queryKey: ['scheduledBroadcastsHome'],
     queryFn: () => base44.entities.Broadcast.filter({ is_scheduled: true, is_live: false }),
-    refetchInterval: 10000,
+    refetchInterval: 30000,
   });
+
+  // جلب جميع الأغلفة مرة واحدة بدلاً من طلب لكل بث
+  const { data: allCovers = [] } = useQuery({
+    queryKey: ['allBroadcastCovers'],
+    queryFn: () => base44.entities.BroadcastCover.list("-created_date"),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+
+  // خريطة broadcast_id -> cover للوصول السريع
+  const coversMap = useMemo(() => {
+    const map = {};
+    allCovers.forEach(c => { map[c.broadcast_id] = c; });
+    return map;
+  }, [allCovers]);
 
   const filteredBroadcasts = useMemo(() => {
     let result = broadcasts;
@@ -257,7 +271,9 @@ export default function Home() {
                   className="cursor-pointer"
                 >
                   <Card className="border-2 border-green-100 hover:shadow-xl transition-all hover:scale-105 overflow-hidden">
-                    <BroadcastCover broadcastId={broadcast.id} className="w-full" />
+                    <div className="w-full h-32 bg-gradient-to-br from-green-100 to-emerald-200 flex items-center justify-center">
+                      <Calendar className="w-12 h-12 text-green-500 opacity-50" />
+                    </div>
                     <CardContent className="pt-4">
                       <div className="flex items-center gap-2 mb-2">
                         <Badge className="bg-green-100 text-green-700 border-green-200">
@@ -309,7 +325,7 @@ export default function Home() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
                 >
-                  <BroadcastCard broadcast={broadcast} autoStartListening={true} />
+                  <BroadcastCard broadcast={broadcast} autoStartListening={true} coverData={coversMap[broadcast.id] || null} />
                 </motion.div>
               ))}
             </div>
@@ -415,7 +431,7 @@ export default function Home() {
               className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
             >
               {filteredBroadcasts.map((broadcast) => (
-                <BroadcastCard key={broadcast.id} broadcast={broadcast} autoStartListening={filter === "live"} />
+                <BroadcastCard key={broadcast.id} broadcast={broadcast} autoStartListening={filter === "live"} coverData={coversMap[broadcast.id] || null} />
               ))}
             </motion.div>
           </AnimatePresence>

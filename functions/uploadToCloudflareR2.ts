@@ -1,4 +1,4 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 import { S3Client, PutObjectCommand } from 'npm:@aws-sdk/client-s3@3.400.0';
 
 Deno.serve(async (req) => {

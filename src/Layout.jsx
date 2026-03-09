@@ -1,7 +1,8 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Radio, Home, Mic, User, LogOut, MessageCircle, Settings, Image, Sun, Layers, BarChart3, FileQuestion, Trophy, FileQuestion as QuizIcon } from "lucide-react";
+import { Radio, Home, Mic, User, LogOut, MessageCircle, Settings, Image, Sun, Layers, BarChart3, FileQuestion, Trophy, Moon, BookOpen, Film } from "lucide-react";
+import { FloatingPlayerProvider } from "./components/recording/FloatingPlayer";
 import { base44 } from "@/api/base44Client";
 import {
   Sidebar,
@@ -30,24 +31,9 @@ const navigationItems = [
     icon: Home,
   },
   {
-    title: "جميع البثوث",
-    url: createPageUrl("PublicBroadcasts"),
-    icon: Radio,
-  },
-  {
-    title: "التسجيلات",
-    url: createPageUrl("Recordings"),
-    icon: Radio,
-  },
-  {
-    title: "السلاسل",
-    url: createPageUrl("SeriesPublic"),
-    icon: Layers,
-  },
-  {
-    title: "الاختبارات",
-    url: createPageUrl("Quizzes"),
-    icon: FileQuestion,
+    title: "المكتبة",
+    url: createPageUrl("Library"),
+    icon: BookOpen,
   },
   {
     title: "الرسائل",
@@ -58,6 +44,11 @@ const navigationItems = [
     title: "الأذكار",
     url: createPageUrl("MorningAdhkar"),
     icon: Sun,
+  },
+  {
+    title: "لوحة الشرف",
+    url: createPageUrl("Leaderboard"),
+    icon: Trophy,
   },
   {
     title: "ملفي الشخصي",
@@ -73,22 +64,12 @@ const adminNavigationItems = [
     icon: Mic,
   },
   {
-    title: "جدولة بث",
-    url: createPageUrl("ScheduleBroadcast"),
-    icon: Settings,
-  },
-  {
     title: "بثوثي",
     url: createPageUrl("MyBroadcasts"),
     icon: User,
   },
   {
-    title: "تصميم الغلاف",
-    url: createPageUrl("BroadcastCoverEditor"),
-    icon: Image,
-  },
-  {
-    title: "الأغلفة المحفوظة",
+    title: "الأغلفة",
     url: createPageUrl("CoversGallery"),
     icon: Image,
   },
@@ -96,6 +77,11 @@ const adminNavigationItems = [
     title: "إدارة السلاسل",
     url: createPageUrl("SeriesManager"),
     icon: Layers,
+  },
+  {
+    title: "إدارة المحتوى",
+    url: createPageUrl("ContentManager"),
+    icon: Film,
   },
   {
     title: "إدارة الاختبارات",
@@ -188,24 +174,25 @@ function SidebarNav({ user }) {
         </>
       )}
 
-      <SidebarGroup className="mt-6">
-        <SidebarGroupLabel className="text-sm font-bold text-gray-500 px-3 py-3">
-          نصائح سريعة
-        </SidebarGroupLabel>
-        <SidebarGroupContent>
-          <div className="px-4 py-3 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100">
-            <p className="text-sm text-gray-700 leading-relaxed">
-              💡 تأكد من السماح للمتصفح بالوصول للميكروفون لبدء البث المباشر
-            </p>
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+
     </>
   );
 }
 
 export default function Layout({ children, currentPageName }) {
   const [user, setUser] = React.useState(null);
+  const [darkMode, setDarkMode] = React.useState(() => {
+    return localStorage.getItem('darkMode') === 'true';
+  });
+
+  React.useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('darkMode', darkMode);
+  }, [darkMode]);
 
   React.useEffect(() => {
     const fetchUser = async () => {
@@ -224,30 +211,15 @@ export default function Layout({ children, currentPageName }) {
   };
 
   return (
+    <FloatingPlayerProvider>
     <SidebarProvider>
-      <style>
-        {`
-          :root {
-            --primary: 280 100% 65%;
-            --primary-foreground: 0 0% 100%;
-            --background: 270 20% 98%;
-          }
-          
-          @keyframes pulse-glow {
-            0%, 100% { 
-              box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
-            }
-            50% { 
-              box-shadow: 0 0 30px rgba(168, 85, 247, 0.8);
-            }
-          }
-          
-          .live-pulse {
-            animation: pulse-glow 2s ease-in-out infinite;
-          }
-        `}
-      </style>
-      <div className="min-h-screen flex w-full" dir="rtl" style={{background: 'linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%)'}}>
+      <div className="min-h-screen flex w-full" dir="rtl" style={{background: darkMode ? 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)' : 'linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%)'}}>
+      <style>{`
+        :root { --primary: 280 100% 65%; --primary-foreground: 0 0% 100%; --background: 270 20% 98%; }
+        .dark { --background: 222 47% 8%; --foreground: 210 40% 95%; --card: 222 47% 11%; --card-foreground: 210 40% 95%; --border: 217 33% 20%; --sidebar-background: 222 47% 8%; --sidebar-foreground: 210 40% 90%; --sidebar-border: 217 33% 18%; --sidebar-accent: 217 33% 17%; }
+        @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 20px rgba(168,85,247,0.4); } 50% { box-shadow: 0 0 30px rgba(168,85,247,0.8); } }
+        .live-pulse { animation: pulse-glow 2s ease-in-out infinite; }
+      `}</style>
         <Sidebar side="right" className="border-l border-purple-100">
           <SidebarHeader className="border-b border-purple-100 p-6">
             <div className="flex items-center gap-3">
@@ -268,17 +240,16 @@ export default function Layout({ children, currentPageName }) {
           <SidebarFooter className="border-t border-purple-100 p-4">
             {user && (
               <div className="space-y-3">
-                <div className="flex items-center gap-3 px-2">
-                  <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">
-                      {user.full_name?.[0]?.toUpperCase() || 'U'}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm truncate">{user.full_name}</p>
-                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                  </div>
+                <div className="flex items-center justify-between px-2">
                   <NotificationBell userId={user.id} />
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setDarkMode(!darkMode)}
+                    className="w-9 h-9 p-0 hover:bg-purple-50 hover:text-purple-600"
+                    title={darkMode ? 'الوضع المضيء' : 'الوضع المظلم'}
+                  >
+                    {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  </Button>
                 </div>
                 <Button
                   variant="outline"
@@ -310,5 +281,7 @@ export default function Layout({ children, currentPageName }) {
         </SidebarInset>
       </div>
     </SidebarProvider>
+    </FloatingPlayerProvider>
+
   );
 }

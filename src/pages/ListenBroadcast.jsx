@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Volume2, VolumeX, Users, Clock, AlertCircle, ArrowRight, Loader2, CheckCircle } from "lucide-react";
+import { Volume2, VolumeX, Users, Clock, AlertCircle, ArrowRight, Loader2, CheckCircle, Monitor } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -28,9 +28,10 @@ export default function ListenBroadcast() {
   
   const [user, setUser] = useState(null);
   const [isListening, setIsListening] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isLocalMuted, setIsLocalMuted] = useState(false);
   const [currentListener, setCurrentListener] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   
   // Use ref to track if autoplay has been triggered
   const autoplayTriggeredRef = useRef(false);
@@ -178,7 +179,7 @@ export default function ListenBroadcast() {
   }, []);
 
   const toggleMute = () => {
-    setIsMuted(!isMuted);
+    setIsLocalMuted(!isLocalMuted);
   };
 
   const getTimeAgo = () => {
@@ -343,18 +344,28 @@ export default function ListenBroadcast() {
                     </motion.div>
                   ) : (
                     <>
-                      {/* Broadcast Cover - Instead of Video */}
-                      <BroadcastCover broadcastId={broadcastId} />
+                      {/* Show cover only when no screen share */}
+                      {!hasRemoteVideo && <BroadcastCover broadcastId={broadcastId} />}
 
-                      {/* Agora Audio Listener */}
+                      {/* Agora Audio Listener - handles both audio and video */}
                       <AgoraAudioListener
                         channelName={broadcastId}
                         isActive={isListening}
+                        isLocalMuted={isLocalMuted}
+                        isBroadcasterMuted={broadcast?.is_muted_for_all}
+                        onHasVideoChange={setHasRemoteVideo}
                         onRemoteUserJoined={handleRemoteUserJoined}
                         onRemoteUserLeft={handleRemoteUserLeft}
                       />
 
-                      <AudioVisualizer isActive={!isMuted} />
+                      <AudioVisualizer isActive={!isLocalMuted && !broadcast?.is_muted_for_all} />
+
+                      {broadcast?.is_muted_for_all && (
+                        <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-4 py-2 text-orange-700 text-sm">
+                          <VolumeX className="w-4 h-4" />
+                          الصوت مكتوم من المذيع - انتظر فتح الصوت
+                        </div>
+                      )}
 
                       <div className="flex gap-4 justify-center">
                         <Button
@@ -362,8 +373,9 @@ export default function ListenBroadcast() {
                           variant="outline"
                           size="lg"
                           className="gap-2 hover:bg-purple-50 border-2 min-w-[140px]"
+                          disabled={broadcast?.is_muted_for_all}
                         >
-                          {isMuted ? (
+                          {isLocalMuted ? (
                             <>
                               <VolumeX className="w-5 h-5" />
                               تشغيل الصوت

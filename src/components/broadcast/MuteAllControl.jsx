@@ -9,12 +9,10 @@ export default function MuteAllControl({ broadcast, isMutedForAll }) {
 
   const toggleMuteAllMutation = useMutation({
     mutationFn: async (muted) => {
-      // Update broadcast status
       await base44.entities.Broadcast.update(broadcast.id, {
         is_muted_for_all: muted
       });
 
-      // Update all active listeners
       const listeners = await base44.entities.Listener.filter({
         broadcast_id: broadcast.id,
         is_active: true
@@ -41,17 +39,21 @@ export default function MuteAllControl({ broadcast, isMutedForAll }) {
       onClick={handleToggleMuteAll}
       variant="outline"
       size="lg"
-      className="gap-2 hover:bg-purple-50 border-2"
+      className={`gap-2 border-2 ${
+        isMutedForAll
+          ? "border-green-300 hover:bg-green-50 text-green-700"
+          : "border-orange-300 hover:bg-orange-50 text-orange-700"
+      }`}
       disabled={toggleMuteAllMutation.isPending}
     >
       {isMutedForAll ? (
         <>
-          <VolumeX className="w-5 h-5 text-red-500" />
+          <Volume2 className="w-5 h-5 text-green-600" />
           فتح الصوت للجميع
         </>
       ) : (
         <>
-          <Volume2 className="w-5 h-5 text-green-500" />
+          <VolumeX className="w-5 h-5 text-orange-600" />
           كتم الصوت للجميع
         </>
       )}

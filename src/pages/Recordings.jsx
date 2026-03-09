@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { useFloatingPlayer } from "../components/recording/FloatingPlayer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,10 +26,7 @@ const formatDuration = (seconds) => {
 
 export default function Recordings() {
   const queryClient = useQueryClient();
-  const [playingId, setPlayingId] = useState(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const floatingPlayer = useFloatingPlayer();
   const [user, setUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("الكل");
@@ -45,28 +43,6 @@ export default function Recordings() {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [generatingSummary, setGeneratingSummary] = useState(null);
-  const [suggestingMarkers, setSuggestingMarkers] = useState(null);
-  const audioRef = useRef(new Audio());
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    const updateTime = () => setCurrentTime(audio.currentTime);
-    const updateDuration = () => setDuration(audio.duration);
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-    };
-
-    audio.addEventListener('timeupdate', updateTime);
-    audio.addEventListener('loadedmetadata', updateDuration);
-    audio.addEventListener('ended', handleEnded);
-
-    return () => {
-      audio.removeEventListener('timeupdate', updateTime);
-      audio.removeEventListener('loadedmetadata', updateDuration);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, []);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -263,27 +239,6 @@ export default function Recordings() {
     }
   };
 
-  const handleSuggestMarkers = async (recording) => {
-    if (!confirm(`هل تريد توليد علامات زمنية تلقائية لـ "${recording.title}"؟`)) {
-      return;
-    }
-
-    setSuggestingMarkers(recording.id);
-    try {
-      const response = await base44.functions.invoke('suggestMarkers', {
-        recording_id: recording.id
-      });
-
-      if (response.data.success) {
-        alert(`✅ ${response.data.message}`);
-      }
-    } catch (error) {
-      alert('فشل توليد العلامات: ' + error.message);
-    } finally {
-      setSuggestingMarkers(null);
-    }
-  };
-
   const handleShowAnalytics = async (recording) => {
     setSelectedRecording(recording);
     setShowAnalyticsDialog(true);
@@ -307,86 +262,57 @@ export default function Recordings() {
     }
   };
 
+  // ── التشغيل عبر المشغل العائم ────────────────────────────────────────────
   const playRecording = async (recording) => {
     try {
-      if (playingId === recording.id && isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-        return;
-      }
+      const response = await base44.functions.invoke('getR2FileWithCors', {
+        file_url: recording.file_url,
+        file_uri: recording.file_uri
+      });
+      const url = response.data?.url;
+      if (!url) throw new Error("لا يوجد رابط للتسجيل");
 
-      if (playingId !== recording.id) {
-        // Check if file_url (R2 public URL) exists, otherwise use signed URL
-        if (recording.file_url) {
-          audioRef.current.src = recording.file_url;
-          setPlayingId(recording.id);
-          setCurrentTime(0);
-        } else if (recording.file_uri) {
-          const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
-            file_uri: recording.file_uri,
-            expires_in: 3600
-          });
+      await floatingPlayer.play({ id: recording.id, title: recording.title, url });
 
-          if (signedUrlResponse && signedUrlResponse.signed_url) {
-            audioRef.current.src = signedUrlResponse.signed_url;
-            setPlayingId(recording.id);
-            setCurrentTime(0);
-          }
-        } else {
-          throw new Error("لا يوجد رابط للتسجيل");
-        }
-
-        await base44.entities.Recording.update(recording.id, {
-          views_count: (recording.views_count || 0) + 1
-        });
-      }
-
-      audioRef.current.play();
-      setIsPlaying(true);
+      base44.entities.Recording.update(recording.id, {
+        views_count: (recording.views_count || 0) + 1
+      }).catch(() => {});
     } catch (error) {
       console.error("Error playing recording:", error);
-      alert("فشل تشغيل التسجيل");
+      alert("فشل تشغيل التسجيل: " + error.message);
     }
   };
 
-  const seekTo = (value) => {
-    audioRef.current.currentTime = value[0];
-    setCurrentTime(value[0]);
-  };
-
-  const skipBackward = () => {
-    audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
-  };
-
-  const skipForward = () => {
-    audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 10);
-  };
+  // stub المتغيرات المطلوبة للـ RecordingCard
+  const playingId = floatingPlayer.track?.id || null;
+  const isPlaying = floatingPlayer.isPlaying;
+  const currentTime = floatingPlayer.currentTime;
+  const duration = floatingPlayer.duration;
+  const seekTo = (value) => floatingPlayer.seek(value[0]);
+  const skipBackward = () => floatingPlayer.seek(Math.max(0, floatingPlayer.currentTime - 10));
+  const skipForward = () => floatingPlayer.seek(Math.min(floatingPlayer.duration, floatingPlayer.currentTime + 10));
 
   const downloadRecording = async (recording) => {
     try {
-      let downloadUrl;
-      
-      if (recording.file_url) {
-        downloadUrl = recording.file_url;
-      } else if (recording.file_uri) {
-        const signedUrlResponse = await base44.integrations.Core.CreateFileSignedUrl({
-          file_uri: recording.file_uri,
-          expires_in: 300
-        });
-        downloadUrl = signedUrlResponse?.signed_url;
-      }
+      // Get file URL with CORS support
+      const response = await base44.functions.invoke('getR2FileWithCors', {
+        file_url: recording.file_url,
+        file_uri: recording.file_uri
+      });
 
-      if (downloadUrl) {
+      if (response.data && response.data.url) {
         const a = document.createElement('a');
-        a.href = downloadUrl;
+        a.href = response.data.url;
         a.download = `${recording.title}.webm`;
         document.body.appendChild(a);
         a.click();
         a.remove();
+      } else {
+        throw new Error("فشل الحصول على رابط التحميل");
       }
     } catch (error) {
       console.error("Error downloading recording:", error);
-      alert("فشل تحميل التسجيل");
+      alert("فشل تحميل التسجيل: " + error.message);
     }
   };
 
@@ -403,7 +329,8 @@ export default function Recordings() {
       title: recording.title,
       description: recording.description || "",
       category: recording.category || "علوم شرعية",
-      series_id: recording.series_id || ""
+      series_id: recording.series_id || "",
+      youtube_url: recording.youtube_url || ""
     });
   };
 
@@ -415,7 +342,10 @@ export default function Recordings() {
 
     updateRecordingMutation.mutate({
       id: editingRecording.id,
-      data: editData
+      data: {
+        ...editData,
+        youtube_url: editData.youtube_url || null
+      }
     });
   };
 
@@ -452,7 +382,7 @@ export default function Recordings() {
   };
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8 pb-28">
       <div className="max-w-7xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -646,16 +576,14 @@ export default function Recordings() {
                         generatingSummary={generatingSummary}
                         user={user}
                         categoryColors={categoryColors}
-                        handleSuggestMarkers={handleSuggestMarkers}
-                        suggestingMarkers={suggestingMarkers}
-                        />
-                        ))}
-                        </div>
-                        </div>
-                        );
-                        })}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
 
-                        {groupedRecordings.withoutSeries.length > 0 && (
+            {groupedRecordings.withoutSeries.length > 0 && (
               <div className="space-y-4">
                 <h2 className="text-2xl font-bold text-gray-900">تسجيلات أخرى</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -684,14 +612,12 @@ export default function Recordings() {
                       generatingSummary={generatingSummary}
                       user={user}
                       categoryColors={categoryColors}
-                      handleSuggestMarkers={handleSuggestMarkers}
-                      suggestingMarkers={suggestingMarkers}
-                      />
-                      ))}
-                      </div>
-                      </div>
-                      )}
-                      </AnimatePresence>
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            </AnimatePresence>
           </div>
         )}
       </div>
@@ -732,6 +658,16 @@ export default function Recordings() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-youtube">رابط اليوتيوب (اختياري)</Label>
+              <Input
+                id="edit-youtube"
+                value={editData.youtube_url || ""}
+                onChange={(e) => setEditData({ ...editData, youtube_url: e.target.value })}
+                placeholder="https://www.youtube.com/watch?v=..."
+                dir="ltr"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-series">السلسلة (اختياري)</Label>

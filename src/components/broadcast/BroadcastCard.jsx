@@ -21,7 +21,7 @@ const categoryColors = {
   "أخرى": "bg-gray-100 text-gray-800"
 };
 
-export default function BroadcastCard({ broadcast, autoStartListening = false }) {
+export default function BroadcastCard({ broadcast, autoStartListening = false, coverData = null }) {
   const navigate = useNavigate();
 
   if (!broadcast) {
@@ -51,9 +51,9 @@ export default function BroadcastCard({ broadcast, autoStartListening = false })
       transition={{ duration: 0.2 }}
     >
       <Card className="overflow-hidden border-2 border-purple-100 hover:shadow-2xl transition-all cursor-pointer group h-full flex flex-col">
-        {/* Cover as Card Image - Pass isHomePage prop */}
+        {/* Cover as Card Image */}
         <div onClick={handleListen}>
-          <BroadcastCover broadcastId={broadcast.id} className="w-full" isHomePage={true} />
+          <BroadcastCover broadcastId={broadcast.id} className="w-full" isHomePage={true} preloadedCover={coverData} />
         </div>
 
         <CardContent className="pt-4 space-y-3 flex-1 flex flex-col">
