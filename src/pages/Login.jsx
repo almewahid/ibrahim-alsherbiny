@@ -22,7 +22,7 @@ function Login() {
   };
 
   const handleGoogleLogin = () => {
-    base44.auth.redirectToLogin(window.location.origin);
+  base44.auth.redirectToLogin(window.location.origin + '/');
   };
 
   return (
