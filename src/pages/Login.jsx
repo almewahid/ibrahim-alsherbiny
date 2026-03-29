@@ -22,7 +22,8 @@ function Login() {
   };
 
   const handleGoogleLogin = () => {
-  base44.auth.redirectToLogin(window.location.origin + '/');
+  const returnUrl = 'https://ibrahim-alsherbiny.vercel.app/';
+  window.location.href = `https://app.base44.com/login?app_id=6910333eda261b67d8e0b82f&redirect_uri=${encodeURIComponent(returnUrl)}`;
   };
 
   return (
