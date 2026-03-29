@@ -104,7 +104,7 @@ export const PAGES = {
 }
 
 export const pagesConfig = {
-    mainPage: "CreateBroadcast",
+    mainPage: "Home",
     Pages: PAGES,
     Layout: __Layout,
 };
