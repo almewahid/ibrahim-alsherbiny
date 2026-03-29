@@ -20,7 +20,7 @@
  *   }
  *   
  *   export const pagesConfig = {
- *       mainPage: "HomePage",
+ *       mainPage: "Home",
  *       Pages: PAGES,
  *   };
  * 

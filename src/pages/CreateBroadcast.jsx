@@ -153,7 +153,7 @@ export default function CreateBroadcast() {
         else if (scheduledBroadcastId) { loadScheduledBroadcast(scheduledBroadcastId); setSelectedScheduledBroadcast(scheduledBroadcastId); }
       } catch (error) {
         console.error("Error fetching user:", error);
-        base44.auth.redirectToLogin();
+        console.error("Not logged in")
       }
     };
     fetchUser();
